@@ -2,6 +2,10 @@
 
 **redis-migrate-tool** is a convenient and useful tool for migrating data between [redis](https://github.com/antirez/redis). 
 
+It is based on redis replication.
+
+In the process of migrating data, the source redis also can provide services for users. 
+
 ## Build
 
 To build redis-migrate-tool:
@@ -15,6 +19,14 @@ To build redis-migrate-tool:
 ## RUN
 
 	src/redis-migrate-tool -c rmt.conf -o log -d
+	
+## WARNING
+
+Before run this tool, make sure your source redis machines have enough memory to generate rdb files.
+
+If your source machines have no enough memory to generate rdb files at one time, you had better set threads small in the rmt.conf.
+
+For example, if your source redis are all in one machine, and this machine only has free memory to generate one rdb file, you had better set threads to 2(one to read from source, anther to write to target) in the rmt.conf file.
 
 ## Configuration
 
