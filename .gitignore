@@ -35,6 +35,9 @@
 core*
 redis-migrate-tool
 
+# extracted jemalloc
+!/dep/jemalloc-4.0.4.tar.bz2
+
 # Autotools
 .deps
 .libs

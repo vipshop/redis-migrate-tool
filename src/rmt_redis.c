@@ -420,7 +420,7 @@ void redis_node_deinit(redis_node *rnode)
     }
 
     if(rnode->addr != NULL){
-        rmt_free(rnode->addr);
+        free(rnode->addr);
         rnode->addr = NULL;
     }
 

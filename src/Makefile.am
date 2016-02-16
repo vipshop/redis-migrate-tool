@@ -9,6 +9,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/src/lzf
 AM_CPPFLAGS += -I $(top_srcdir)/src/intset
 AM_CPPFLAGS += -I $(top_srcdir)/src/ziplist
 AM_CPPFLAGS += -I $(top_srcdir)/src/zipmap
+AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.0.4/include
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -56,3 +57,4 @@ redis_migrate_tool_LDADD += $(top_builddir)/src/lzf/liblzf.a
 redis_migrate_tool_LDADD += $(top_builddir)/src/intset/libintset.a
 redis_migrate_tool_LDADD += $(top_builddir)/src/ziplist/libziplist.a
 redis_migrate_tool_LDADD += $(top_builddir)/src/zipmap/libzipmap.a
+redis_migrate_tool_LDADD += $(top_builddir)/dep/jemalloc-4.0.4/lib/libjemalloc.a

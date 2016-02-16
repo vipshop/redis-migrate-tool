@@ -21,6 +21,10 @@
 # include <execinfo.h>
 #endif
 
+#ifdef RMT_JEMALLOC
+# include <jemalloc/jemalloc.h>
+#endif
+
 #define RMT_SYNCIO_RESOLUTION 10 /* Resolution in milliseconds */
 
 int
@@ -286,8 +290,11 @@ _rmt_alloc(size_t size, const char *name, int line)
     void *p;
 
     ASSERT(size != 0);
-
+#ifdef RMT_JEMALLOC
+    p = je_malloc(size);
+#else
     p = malloc(size);
+#endif
     if (p == NULL) {
         log_error("malloc(%zu) failed @ %s:%d", size, name, line);
     } else {
@@ -322,8 +329,11 @@ _rmt_realloc(void *ptr, size_t size, const char *name, int line)
     void *p;
 
     ASSERT(size != 0);
-
+#ifdef RMT_JEMALLOC
+    p = je_realloc(ptr, size);
+#else
     p = realloc(ptr, size);
+#endif
     if (p == NULL) {
         log_error("realloc(%zu) failed @ %s:%d", size, name, line);
     } else {
@@ -338,7 +348,11 @@ _rmt_free(void *ptr, const char *name, int line)
 {
     ASSERT(ptr != NULL);
     log_debug(LOG_VVVERB, "free(%p) @ %s:%d", ptr, name, line);
+#ifdef RMT_JEMALLOC
+    je_free(ptr);
+#else
     free(ptr);
+#endif
 }
 
 void

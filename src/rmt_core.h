@@ -23,6 +23,10 @@
 # define RMT_MEMORY_TEST 1
 #endif
 
+#ifdef HAVE_JEMALLOC
+# define RMT_JEMALLOC 1
+#endif
+
 #ifdef HAVE_BACKTRACE
 # define RMT_HAVE_BACKTRACE 1
 #endif

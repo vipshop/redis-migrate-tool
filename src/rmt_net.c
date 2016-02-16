@@ -638,7 +638,7 @@ int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
 
     if(tc->host != NULL)
     {
-        rmt_free(tc->host);
+        free(tc->host);
         tc->host = NULL;
     }
 
@@ -657,7 +657,7 @@ int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
     }
 
     if (tc->source_addr != NULL) {
-        rmt_free(tc->source_addr);
+        free(tc->source_addr);
         tc->source_addr = NULL;
     }
 
