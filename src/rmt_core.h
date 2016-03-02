@@ -159,6 +159,7 @@ struct instance {
     uint64_t        buffer_size;
 
     int step;
+    int source_safe;
 };
 
 typedef struct rmtContext {
@@ -181,6 +182,7 @@ typedef struct rmtContext {
     size_t          mbuf_size;
 
     int step;
+    int source_safe;
 }rmtContext;
 
 //for the read thread

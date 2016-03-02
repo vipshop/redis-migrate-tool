@@ -51,6 +51,7 @@ init_context(struct instance *rmti)
     rmt_ctx->mbuf_size = 0;
 
     rmt_ctx->step = 0;
+    rmt_ctx->source_safe = 0;
 
     commands = dictCreate(&commandTableDictType,NULL);
     if(commands == NULL)
@@ -102,6 +103,7 @@ init_context(struct instance *rmti)
     rmt_ctx->mbuf_size = rmti->mbuf_size;
 
     rmt_ctx->step = rmti->step;
+    rmt_ctx->source_safe = rmti->source_safe;
 
     cf = conf_create(rmti->conf_filename);
     if(cf == NULL){
@@ -135,6 +137,10 @@ init_context(struct instance *rmti)
 
     if(cf->rdb_diskless != CONF_UNSET_NUM){
         rmt_ctx->rdb_diskless = cf->rdb_diskless;
+    }
+
+    if(cf->source_safe != CONF_UNSET_NUM){
+        rmt_ctx->source_safe = cf->source_safe;
     }
     
     return rmt_ctx;

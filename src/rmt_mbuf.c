@@ -120,7 +120,7 @@ mbuf_put(struct mbuf *mbuf)
         return RMT_ERROR;
     }
 
-    if(mb->free_mbufs == NULL)
+    if(mb->free_mbufs == NULL || mttlist_length(mb->free_mbufs) > 10000)
     {
         mbuf_free(mbuf);
         return RMT_OK;

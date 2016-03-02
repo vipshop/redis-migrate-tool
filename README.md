@@ -22,11 +22,9 @@ To build redis-migrate-tool:
 	
 ## WARNING
 
-Before run this tool, make sure your source redis machines have enough memory to generate rdb files.
+Before run this tool, make sure your source redis machines have enough memory allowed at least one redis generate rdb file.
 
-If your source machines have no enough memory to generate rdb files at one time, you had better set threads small in the rmt.conf.
-
-For example, if your source redis are all in one machine, and this machine only has free memory to generate one rdb file, you had better set threads to 2(one to read from source, anther to write to target) in the rmt.conf file.
+If your source machines have large enough memory allowed all the redis generate rdb files at one time, you can set 'source_safe: false' in the rmt.conf.
 
 ## Configuration
 
@@ -64,6 +62,7 @@ Config file has three parts: source, target and common.
 + **step**: The step for parse request. The higher the number, the more quickly to migrate, but the more memory used. Defaults to 1.
 + **mbuf_size**: Mbuf size for request. Defaults to 512.
 + **noreply**: A boolean value that decide whether to check the target group replies. Defaults to false.
++ **source_safe**: A boolean value that protect the source group machines memory safe. If it is true, the tool can guarantee only one redis to generate rdb file at one time on the same machine for source group. In addition, 'source_safe: true' may use less threads then you set. Defaults to true.
 
 
 For example, the configuration file shown below is to migrate data from single to twemproxy.
@@ -92,6 +91,7 @@ For example, the configuration file shown below is to migrate data from single t
 	noreply: true
 	step: 10
 	mbuf_size: 1024
+	source_safe: true
 	
 
 Migrate data from twemproxy to redis cluster.
@@ -135,6 +135,7 @@ Migrate data from rdb file to redis cluster.
 	noreply: false
 	step: 5
 	mbuf_size: 512
+	source_safe: false
 
 ## License
 

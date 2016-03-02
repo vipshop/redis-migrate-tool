@@ -58,6 +58,7 @@ typedef struct rmt_conf {
     int           mbuf_size;
     int           noreply;
     int           rdb_diskless;
+    int           source_safe;
 }rmt_conf;
 
 typedef struct conf_value{

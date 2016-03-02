@@ -27,6 +27,7 @@
 #define RMT_OPTION_MBUF_SIZE_DEFAULT    REDIS_CMD_MBUF_BASE_SIZE
 
 #define RMT_OPTION_STEP_DEFAULT		    1
+#define RMT_OPTION_SOURCE_SAFE_DEFAULT	1
 
 static struct option long_options[] = {
     { "help",           no_argument,        NULL,   'h' },
@@ -127,6 +128,7 @@ rmt_set_default_options(struct instance *nci)
     nci->buffer_size = RMT_OPTION_BUFFER_DEFAULT;
 
     nci->step = RMT_OPTION_STEP_DEFAULT;
+    nci->source_safe = RMT_OPTION_SOURCE_SAFE_DEFAULT;
 }
 
 r_status

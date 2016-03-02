@@ -6223,7 +6223,8 @@ redis_group_add_node(redis_group *rgroup, const char *name, const char *addr)
 
     node_entry = dictFind(rgroup->nodes, name);
     if(node_entry != NULL){
-        log_error("Add node to redis group failed: node[%s] already exits");
+        log_error("Add node to redis group failed: node %s already exits",
+            name);
         return NULL;
     }
     
@@ -6703,6 +6704,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
     
     for(i = 0; i < node_count; i++){
         node = array_push(&nodes);
+        node->name = NULL;
         str_server = array_get(cp->servers, i);
         parts = sdssplitlen(*str_server,(int)sdslen(*str_server)," ",1,&parts_count);
         if(parts == NULL || parts_count == 0){
@@ -6790,8 +6792,8 @@ error:
     }
 
     while(array_n(&nodes) > 0){
-        node = array_get(&nodes, 0);
-        sdsfree(node->name);
+        node = array_pop(&nodes);
+        if (node->name) sdsfree(node->name);
     }
     array_deinit(&nodes);
     

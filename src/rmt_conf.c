@@ -102,9 +102,11 @@ static conf_option conf_common_options[] = {
     { (char*)"rdb_diskless",
       conf_set_bool,
       offsetof(rmt_conf, rdb_diskless) },
+    { (char*)"source_safe",
+      conf_set_bool,
+      offsetof(rmt_conf, source_safe) },
     { NULL, NULL, 0 }
 };
-
 
 static void
 conf_value_dump(conf_value *cv, int log_level)
@@ -491,7 +493,7 @@ conf_set_bool(void *obj, conf_option *opt, void *data)
         *gt = 0;
     }else{
         log_error("Key %s in conf file must be %s or %s",
-            CONF_VALUE_TRUE, CONF_VALUE_FALSE);
+            opt->name, CONF_VALUE_TRUE, CONF_VALUE_FALSE);
         return RMT_ERROR;
     }
 
@@ -681,6 +683,7 @@ static int conf_init(rmt_conf *cf)
     cf->mbuf_size = CONF_UNSET_NUM;
     cf->noreply = CONF_UNSET_NUM;
     cf->rdb_diskless = CONF_UNSET_NUM;
+    cf->source_safe = CONF_UNSET_NUM;
     
     return RMT_OK;
 }
@@ -717,6 +720,7 @@ static void conf_deinit(rmt_conf *cf)
     cf->mbuf_size = CONF_UNSET_NUM;
     cf->noreply = CONF_UNSET_NUM;
     cf->rdb_diskless = CONF_UNSET_NUM;
+    cf->source_safe = CONF_UNSET_NUM;
 }
 
 static void
@@ -764,6 +768,7 @@ conf_dump(rmt_conf *cf)
     log_debug(log_level, "  mbuf_size: %d", cf->mbuf_size);
     log_debug(log_level, "  noreply: %d", cf->noreply);
     log_debug(log_level, "  rdb_diskless: %d", cf->rdb_diskless);
+    log_debug(log_level, "  source_safe: %d", cf->source_safe);
     log_debug(log_level, "");
 
     source_pool = &cf->source_pool;

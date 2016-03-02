@@ -799,21 +799,21 @@ int rmt_tcp_context_connect_addr(tcp_context *tc, const char *addr, int len,
         rmt_strlen(IP_PORT_SEPARATOR), &ip_port_count);
     if(ip_port == NULL || ip_port_count != 2)
     {
-        log_error("ip port parsed error");
+        log_error("Error: ip port parsed error");
         goto error;
     }
 
     port = rmt_atoi(ip_port[1], sdslen(ip_port[1]));
     if(rmt_valid_port(port) == 0)
     {
-        log_error("port is invalid");
+        log_error("Error: port is invalid");
         goto error;
     }
     
     ret = rmt_tcp_context_connect(tc, ip_port[0], port, timeout, source_addr);
     if(ret != RMT_OK)
     {
-        log_error("can't context to redis master");
+        log_error("Error: can't connect to redis master");
         goto error;
     }
 
