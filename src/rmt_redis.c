@@ -268,14 +268,14 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
 
     rnode->addr = rmt_strdup(addr);
     if(rnode->addr == NULL){
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         goto error;
     }
 
     rnode->tc = rmt_tcp_context_create();
     if(rnode->tc == NULL)
     {
-        log_error("create tcp_context failed: out of memory");
+        log_error("ERROR: create tcp_context failed: out of memory");
         goto error;
     }
 
@@ -285,14 +285,14 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         rnode->rdb = rmt_alloc(sizeof(*rnode->rdb));
         if(rnode->rdb == NULL)
         {
-            log_error("Create rdb failed: out of memory");
+            log_error("ERROR: Create rdb failed: out of memory");
             goto error;
         }
 
         ret = redis_rdb_init(rnode->rdb, addr, REDIS_RDB_TYPE_FILE);
         if(ret != RMT_OK)
         {
-            log_error("Init srnode->rdb failed");
+            log_error("ERROR: Init srnode->rdb failed");
             goto error;
         }
 
@@ -304,42 +304,42 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         rnode->rr = rmt_alloc(sizeof(*rnode->rr));
         if(rnode->rr == NULL)
         {
-            log_error("Create redis_repl failed: out of memory");
+            log_error("ERROR: Create redis_repl failed: out of memory");
             goto error;
         }
 
         ret = redis_replication_init(rnode->rr);
         if(ret != RMT_OK)
         {
-            log_error("Init redis replication failed");
+            log_error("ERROR: Init redis replication failed");
             goto error;
         }
         
         rnode->cmd_data = mttlist_create();
         if(rnode->cmd_data == NULL)
         {
-            log_error("Create cmd_data list failed: out of memory");
+            log_error("ERROR: Create cmd_data list failed: out of memory");
             goto error;
         }
 
         ret = mttlist_init_with_locklist(rnode->cmd_data);
         if(ret != RMT_OK)
         {
-            log_error("Init cmd_data list failed: out of memory");
+            log_error("ERROR: Init cmd_data list failed: out of memory");
             goto error;
         }
 
         ret = pipe(rnode->notice_pipe);
         if(ret < 0)
         {
-            log_error("Notice_pipe init failed: %s", strerror(errno));
+            log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_pipe[0]);
         if(ret < 0)
         {
-            log_error("Set notice_pipe[0] %d nonblock failed: %s", 
+            log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
                 rnode->notice_pipe[0], strerror(errno));
             goto error;
         }
@@ -347,7 +347,7 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         ret = rmt_set_nonblocking(rnode->notice_pipe[1]);
         if(ret < 0)
         {
-            log_error("Set notice_pipe[1] %d nonblock failed: %s", 
+            log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
                 rnode->notice_pipe[1], strerror(errno));
             goto error;
         }
@@ -355,14 +355,14 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         ret = pipe(rnode->notice_read_pipe);
         if(ret < 0)
         {
-            log_error("Notice_read_pipe init failed: %s", strerror(errno));
+            log_error("ERROR: Notice_read_pipe init failed: %s", strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_read_pipe[0]);
         if(ret < 0)
         {
-            log_error("Set notice_read_pipe[0] %d nonblock failed: %s", 
+            log_error("ERROR: Set notice_read_pipe[0] %d nonblock failed: %s", 
                 rnode->notice_read_pipe[0], strerror(errno));
             goto error;
         }
@@ -370,7 +370,7 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         ret = rmt_set_nonblocking(rnode->notice_read_pipe[1]);
         if(ret < 0)
         {
-            log_error("Set notice_read_pipe[1] %d nonblock failed: %s", 
+            log_error("ERROR: Set notice_read_pipe[1] %d nonblock failed: %s", 
                 rnode->notice_read_pipe[1], strerror(errno));
             goto error;
         }
@@ -379,14 +379,14 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         rnode->send_data = listCreate();
         if(rnode->send_data == NULL)
         {
-            log_error("Create msg list failed: out of memory");
+            log_error("ERROR: Create msg list failed: out of memory");
             goto error;
         }
 
         rnode->sent_data = listCreate();
         if(rnode->sent_data == NULL)
         {
-            log_error("Create msg list failed: out of memory");
+            log_error("ERROR: Create msg list failed: out of memory");
             goto error;
         }
     }
@@ -569,7 +569,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             ctx->mbuf_size, NULL);
         if(rgroup->mb == NULL)
         {
-            log_error("Create mbuf_base failed");
+            log_error("ERROR: Create mbuf_base failed");
             goto error;
         }
     }else{
@@ -578,14 +578,14 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             mttlist_init_with_unlocklist);
         if(rgroup->mb == NULL)
         {
-            log_error("Create mbuf_base failed");
+            log_error("ERROR: Create mbuf_base failed");
             goto error;
         }
 
         rgroup->piece_data = listCreate();
         if(rgroup->piece_data == NULL)
         {
-            log_error("Create piece data for target group failed: out of memory");
+            log_error("ERROR: Create piece data for target group failed: out of memory");
             goto error;
         }
     }
@@ -593,7 +593,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
     rgroup->nodes = dictCreate(&groupNodesDictType, NULL);
     if(rgroup->nodes == NULL)
     {
-        log_error("Create nodes dict failed: out of memory");
+        log_error("ERROR: Create nodes dict failed: out of memory");
         goto error;
     }
 
@@ -605,7 +605,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             ret = redis_single_init_from_conf(rgroup, cp);
             if(ret != RMT_OK)
             {
-                log_error("Redis single init failed");
+                log_error("ERROR: Redis single init failed");
                 goto error;
             }
 
@@ -616,7 +616,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             ret = redis_twem_init_from_conf(rgroup, cp);
             if(ret != RMT_OK)
             {
-                log_error("Redis twemproxy init failed");
+                log_error("ERROR: Redis twemproxy init failed");
                 goto error;
             }
 
@@ -627,7 +627,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             ret = redis_cluster_init_from_conf(rgroup, cp);
             if(ret != RMT_OK)
             {
-                log_error("Redis cluster init failed");
+                log_error("ERROR: Redis cluster init failed");
                 goto error;
             }
 
@@ -638,7 +638,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             ret = redis_rdb_file_init_from_conf(rgroup, cp);
             if(ret != RMT_OK)
             {
-                log_error("Redis cluster init failed");
+                log_error("ERROR: Redis cluster init failed");
                 goto error;
             }
 
@@ -752,7 +752,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
         REDIS_RDB_MBUF_BASE_SIZE, NULL);
     if(rdb->mb == NULL)
     {
-        log_error("create mbuf_base failed");
+        log_error("ERROR: create mbuf_base failed");
         goto error;
     }
 
@@ -761,7 +761,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
         rdb->fname = rmt_alloc(256*sizeof(rdb->fname));
         if(rdb->fname == NULL)
         {
-            log_error("out of memory");
+            log_error("ERROR: out of memory");
             goto error;
         }
 
@@ -771,13 +771,13 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
     }else if(REDIS_RDB_TYPE_MEM){
         rdb->data = mttlist_create();
         if(rdb->data == NULL){
-            log_error("create rdb data list failed: out of memory");
+            log_error("ERROR: create rdb data list failed: out of memory");
             goto error;
         }
 
         ret = mttlist_init_with_locklist(rdb->data);
         if(ret != RMT_OK){
-            log_error("init rdb data list failed: out of memory");
+            log_error("ERROR: init rdb data list failed: out of memory");
             goto error;
         }
     }
@@ -932,7 +932,7 @@ static int rmt_redis_send_cmd(int fd, ...) {
     /* Transfer command to the server. */
     if (rmt_sync_write(fd,cmd,(ssize_t)sdslen(cmd),1000) == -1) {
         sdsfree(cmd);
-        log_error("writing to master failed: %s", strerror(errno));
+        log_error("ERROR: writing to master failed: %s", strerror(errno));
         return RMT_ERROR;
     }
     sdsfree(cmd);
@@ -1123,7 +1123,7 @@ static int rmtRedisReplDataInsert(redis_node *srnode,
 
     if(m1 == NULL)
     {
-        log_error("get mbuf failed");
+        log_error("ERROR: get mbuf failed");
         return RMT_ERROR;
     }
 
@@ -1182,7 +1182,7 @@ static int redisSlaveReplCron(struct aeEventLoop *eventLoop, long long id, void 
 
     ret = rmt_redis_send_cmd(tc->sd, "replconf", "ack", buf, NULL);
     if(ret != RMT_OK){
-        log_error("Send replconf ack to node[%s] failed", srnode->addr);
+        log_error("ERROR: Send replconf ack to node[%s] failed", srnode->addr);
     }
 
 #ifdef RMT_MEMORY_TEST
@@ -1209,7 +1209,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
     if(srnode->mbuf_in == NULL){
         srnode->mbuf_in = mbuf_get(srgroup->mb);
         if(srnode->mbuf_in == NULL){
-            log_error("Mbuf get failed: Out of memory");
+            log_error("ERROR: Mbuf get failed: Out of memory");
             goto done;
         }
     }else if(mbuf_size(srnode->mbuf_in) == 0){
@@ -1219,7 +1219,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
 
         srnode->mbuf_in = mbuf_get(srgroup->mb);
         if(srnode->mbuf_in == NULL){
-            log_error("Mbuf get failed: Out of memory");
+            log_error("ERROR: Mbuf get failed: Out of memory");
             goto done;
         }
     }
@@ -1361,12 +1361,12 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     if (aeCreateFileEvent(read_data->loop,tc->sd,AE_READABLE,
         rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR)
     {
-        log_error("can't create the rmtRedisSlaveReadQueryFromMaster file event.");
+        log_error("ERROR: can't create the rmtRedisSlaveReadQueryFromMaster file event.");
         return RMT_ERROR;
     }
     
     if(aeCreateTimeEvent(read_data->loop, 1, redisSlaveReplCron, srnode, NULL) == AE_ERR) {
-        log_error("can't create the redisSlaveReplCron time event.");
+        log_error("ERROR: can't create the redisSlaveReplCron time event.");
         return RMT_ERROR;
     }
 
@@ -1459,7 +1459,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         mbuf = rdb->mbuf;
         if(mbuf == NULL)
         {
-            log_error("mbuf_get NULL: out of memory");
+            log_error("ERROR: mbuf_get NULL: out of memory");
             return;
         }
     }
@@ -1611,7 +1611,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     if(sockerr)
     {
-        log_error("Error condition on socket for SYNC: %s",
+        log_error("ERROR: error condition on socket for SYNC: %s",
             strerror(sockerr));
         goto error;
     }
@@ -1622,7 +1622,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         rr->repl_state = REDIS_REPL_RECEIVE_PONG;
 
         if (rmt_sync_write(tc->sd,"PING\r\n",6,100) == -1) {
-            log_error("I/O error writing to MASTER: %s", strerror(errno));
+            log_error("ERROR: I/O error writing to MASTER: %s", strerror(errno));
         }
 
         return;
@@ -1640,7 +1640,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         buf[0] = '\0';
         if (rmt_sync_readline(fd,buf,sizeof(buf), 1000) == -1)
         {
-            log_error("I/O error reading PING reply from master: %s",
+            log_error("ERROR: I/O error reading PING reply from master: %s",
                 strerror(errno));
             goto error;
         }
@@ -1652,7 +1652,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
              * both. */
         if (buf[0] != '+')
         {
-            log_error("Error reply to PING from master: '%s'",buf);
+            log_error("ERROR: error reply to PING from master: '%s'",buf);
             goto error;
         } else {
             log_debug(LOG_NOTICE,
@@ -1729,7 +1729,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     if(rdb->type == REDIS_RDB_TYPE_FILE && rdb->fd < 0){
         rdb->fd = open(rdb->fname,O_CREAT|O_WRONLY|O_EXCL,0644);
         if(rdb->fd == -1){
-            log_error("open rdb file %s failed: %s", 
+            log_error("ERROR: open rdb file %s failed: %s", 
                 strerror(errno));
             goto error;
         }
@@ -1762,14 +1762,14 @@ int rmtConnectRedisMaster(redis_node *srnode)
         IP_PORT_SEPARATOR, rmt_strlen(IP_PORT_SEPARATOR), &ip_port_count);
     if(ip_port == NULL || ip_port_count != 2)
     {
-        log_error("ip port parsed error");
+        log_error("ERROR: ip port parsed error");
         goto error;
     }
 
     port = rmt_atoi(ip_port[1], sdslen(ip_port[1]));
     if(rmt_valid_port(port) == 0)
     {
-        log_error("port is invalid");
+        log_error("ERROR: port is invalid");
         goto error;
     }
     
@@ -1777,7 +1777,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     ret = rmt_tcp_context_connect(tc, ip_port[0], port, NULL, NULL);
     if(ret != RMT_OK)
     {
-        log_error("can't context to redis master");
+        log_error("ERROR: can't context to redis master");
         goto error;
     }
 
@@ -1788,7 +1788,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     if (aeCreateFileEvent(read_data->loop, tc->sd, 
         AE_READABLE|AE_WRITABLE,rmtSyncRedisMaster,srnode) == AE_ERR)
     {
-        log_error("can't create readable event for SYNC");
+        log_error("ERROR: can't create readable event for SYNC");
         goto error;
     }
 
@@ -2842,7 +2842,7 @@ redis_parse_req(struct msg *r)
             }
 
             if (r->type == MSG_UNKNOWN) {
-                log_error("parsed unsupported command '%.*s'", p - m, m);
+                log_error("ERROR: parsed unsupported command '%.*s'", p - m, m);
                 goto error;
             }
 
@@ -2880,7 +2880,7 @@ redis_parse_req(struct msg *r)
                 r->rlen = r->rlen * 10 + (uint32_t)(ch - '0');
             } else if (ch == CR) {
                 if (r->rlen >= mbuf_data_size(r->mb)) {
-                    log_error("parsed bad req %"PRIu64" of type %d with key "
+                    log_error("ERROR: parsed bad req %"PRIu64" of type %d with key "
                               "length %d that greater than or equal to maximum"
                               " redis key length of %d", r->id, r->type,
                               r->rlen, mbuf_data_size(r->mb));
@@ -4240,7 +4240,7 @@ static int redis_fragment_argx(redis_group *rgroup,
 
     sub_msgs = rmt_zalloc(ncontinuum * sizeof(*sub_msgs));
     if (sub_msgs == NULL) {
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         return RMT_ENOMEM;
     }
 
@@ -4248,7 +4248,7 @@ static int redis_fragment_argx(redis_group *rgroup,
     r->frag_seq = rmt_alloc(array_n(r->keys) * sizeof(*r->frag_seq));
     if (r->frag_seq == NULL) {
         rmt_free(sub_msgs);
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         return RMT_ENOMEM;
     }
 
@@ -4297,7 +4297,7 @@ static int redis_fragment_argx(redis_group *rgroup,
             sub_msgs[idx] = msg_get(r->mb, r->request, REDIS_DATA_TYPE_CMD);
             if (sub_msgs[idx] == NULL) {
                 rmt_free(sub_msgs);
-                log_error("Out of memory");
+                log_error("ERROR: Out of memory");
                 return RMT_ENOMEM;
             }
         }
@@ -4307,7 +4307,7 @@ static int redis_fragment_argx(redis_group *rgroup,
         status = redis_append_key(sub_msg, kpos->start, (uint32_t)(kpos->end - kpos->start));
         if (status != RMT_OK) {
             rmt_free(sub_msgs);
-            log_error("Msg append redis key failed");
+            log_error("ERROR: Msg append redis key failed");
             return status;
         }
 
@@ -4317,14 +4317,14 @@ static int redis_fragment_argx(redis_group *rgroup,
             status = redis_copy_bulk(NULL, r);          /* eat key */
             if (status != RMT_OK) {
                 rmt_free(sub_msgs);
-                log_error("Eat key for mset failed");
+                log_error("ERROR: Eat key for mset failed");
                 return status;
             }
 
             status = redis_copy_bulk(sub_msg, r);
             if (status != RMT_OK) {
                 rmt_free(sub_msgs);
-                log_error("Msg append bulk failed");
+                log_error("ERROR: Msg append bulk failed");
                 return status;
             }
 
@@ -4352,7 +4352,7 @@ static int redis_fragment_argx(redis_group *rgroup,
         }
         if (status != RMT_OK) {
             rmt_free(sub_msgs);
-            log_error("Msg prepend command head failed");
+            log_error("ERROR: Msg prepend command head failed");
             return status;
         }
 
@@ -4706,7 +4706,7 @@ next:
     
     ret = redis_msg_append_multi_bulk_len_full(msg, field_count);
     if(ret != RMT_OK){
-        log_error("Redis msg append bulk len %lld error.",
+        log_error("ERROR: Redis msg append bulk len %lld error.",
             field_count);
         if(ret == RMT_ENOMEM){
             goto enomem;
@@ -4750,7 +4750,7 @@ next:
     }
 
     if(ret != RMT_OK){
-        log_error("Redis msg append bulk %s error.",
+        log_error("ERROR: Redis msg append bulk %s error.",
             msg_type_string(msg->type));
         if(ret == RMT_ENOMEM){
             goto enomem;
@@ -4761,7 +4761,7 @@ next:
 
     ret = redis_msg_append_bulk_full(msg, key, (uint32_t)sdslen(key));
     if(ret != RMT_OK){
-        log_error("Redis msg append bulk key error.");
+        log_error("ERROR: Redis msg append bulk key error.");
         if(ret == RMT_ENOMEM){
             goto enomem;
         }
@@ -4774,7 +4774,7 @@ next:
 
         ret = redis_msg_append_bulk_full(msg, *elem, (uint32_t)sdslen(*elem));
         if(ret != RMT_OK){
-            log_error("Redis msg append bulk the %d value error(key is %.*s).", 
+            log_error("ERROR: Redis msg append bulk the %d value error(key is %.*s).", 
                 i, (uint32_t)sdslen(key), key);
             if(ret == RMT_ENOMEM){
                 goto enomem;
@@ -4806,7 +4806,7 @@ next:
     return msg_owner;
     
 enomem:
-    log_error("Out of memory");
+    log_error("ERROR: Out of memory");
     
 error: 
 
@@ -4882,7 +4882,7 @@ static struct msg *redis_generate_msg_with_key_expire(rmtContext *ctx, mbuf_base
     return msg;
 
 enomem:
-    log_error("Out of memory");
+    log_error("ERROR: Out of memory");
     
 error: 
 
@@ -5015,7 +5015,7 @@ static long long redis_rdb_file_load_int(redis_rdb *rdb, int enctype) {
         val = (int32_t)v;
     } else {
         val = 0; /* anti-warning */
-        log_error("Unknown RDB integer encoding type");
+        log_error("ERROR: Unknown RDB integer encoding type");
     }
 
     return val;
@@ -5064,7 +5064,7 @@ static sds redis_rdb_file_load_str(redis_rdb *rdb)
     if((len = redis_rdb_file_load_len(rdb, &isencoded)) 
         == REDIS_RDB_LENERR)
     {
-        log_error("Short read or OOM loading DB. Unrecoverable error, aborting now.");
+        log_error("ERROR: Short read or OOM loading DB. Unrecoverable error, aborting now.");
         return NULL;
     }
 
@@ -5079,7 +5079,7 @@ static sds redis_rdb_file_load_str(redis_rdb *rdb)
             return redis_rdb_file_load_lzf_str(rdb);
             break;
         default:
-            log_error("Unknown RDB encoding type");
+            log_error("ERROR: Unknown RDB encoding type");
             break;
         }
     }
@@ -5087,12 +5087,12 @@ static sds redis_rdb_file_load_str(redis_rdb *rdb)
     str = sdsnewlen(NULL, len);
     if(str == NULL)
     {
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         return NULL;
     }
 
     if(redis_rdb_file_read(rdb, str, len) != RMT_OK){
-        log_error("Short read or OOM loading DB. Unrecoverable error, aborting now.");
+        log_error("ERROR: Short read or OOM loading DB. Unrecoverable error, aborting now.");
         return NULL;
     }
 
@@ -5117,7 +5117,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         value = redis_value_create(1);
         if(value == NULL)
         {
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
 
@@ -5134,7 +5134,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         value = redis_value_create((uint32_t)len);
         if(value == NULL)
         {
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
         
@@ -5148,7 +5148,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         value = redis_value_create((uint32_t)(2*len));
         if(value == NULL)
         {
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
         
@@ -5171,7 +5171,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         value = redis_value_create((uint32_t)(2*len));
         if(value == NULL)
         {
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
 
@@ -5200,7 +5200,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             
             value = redis_value_create((uint32_t)(2*len));
             if (value == NULL) {
-                log_error("Out of memory");
+                log_error("ERROR: Out of memory");
                 goto error;
             }
 
@@ -5228,7 +5228,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
 
             value = redis_value_create((uint32_t)len);
             if (value == NULL) {
-                log_error("Out of memory");
+                log_error("ERROR: Out of memory");
                 goto error;
             }
 
@@ -5261,7 +5261,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             value = redis_value_create((uint32_t)len);
             if(value == NULL)
             {
-                log_error("Out of memory");
+                log_error("ERROR: Out of memory");
                 goto error;
             }
 
@@ -5269,7 +5269,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             {
                 if(intsetGet(is, i, &integer) == 0)
                 {
-                    log_error("intset get failed");
+                    log_error("ERROR: intset get failed");
                     goto error;
                 }
 
@@ -5289,7 +5289,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         sdsfree(elems);
     }else {
         
-        log_error("Unknown object type");
+        log_error("ERROR: Unknown object type");
         goto error;
     }
 
@@ -5404,28 +5404,28 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     if(state == RDB_FILE_PARSE_START){
         if ((rdb->fp = fopen(rdb->fname,"r")) == NULL){
-            log_error("Open rdb file %s failed: %s", 
+            log_error("ERROR: Open rdb file %s failed: %s", 
                 rdb->fname, strerror(errno));
             goto error;
         }
 
 
         if(redis_rdb_file_read(rdb, buf, 9) != RMT_OK){
-            log_error("redis rdb file %s read first 9 char error", 
+            log_error("ERROR: redis rdb file %s read first 9 char error", 
                 rdb->fname);
             goto eoferr;
         }
         
         len = rmt_strlen(REDIS_RDB_MAGIC_STR);
         if(memcmp(buf, REDIS_RDB_MAGIC_STR, len) != 0){
-            log_error("Redis rdb file %s magic string is error: %.*s",
+            log_error("ERROR: Redis rdb file %s magic string is error: %.*s",
                 rdb->fname, len, buf);
             goto error;
         }
 
         rdbver = rmt_atoi(buf+len, 4);
         if(rdbver < 1 || rdbver > REDIS_RDB_VERSION){
-            log_error("Redis rdb file %s version is error: %d",
+            log_error("ERROR: Redis rdb file %s version is error: %d",
                 rdb->fname, rdbver);
             goto error;
         }
@@ -5447,14 +5447,14 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         data_type = -1;
         
         if(redis_rdb_file_read(rdb, &type, 1) != RMT_OK){
-            log_error("redis rdb file %s read type error", 
+            log_error("ERROR: redis rdb file %s read type error", 
                 rdb->fname);
             goto eoferr;
         }
 
         if (type == REDIS_RDB_OPCODE_EXPIRETIME){
             if(redis_rdb_file_read(rdb, (&t32), 4) != RMT_OK){
-                log_error("redis rdb file %s read 4 expiretime error", 
+                log_error("ERROR: redis rdb file %s read 4 expiretime error", 
                     rdb->fname);
                 goto eoferr;
             }
@@ -5462,7 +5462,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             expiretime = (time_t)t32;
             
             if(redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK){
-                log_error("redis rdb file %s read type error", 
+                log_error("ERROR: redis rdb file %s read type error", 
                     rdb->fname);
                 goto eoferr;
             }
@@ -5470,7 +5470,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             expiretime_type = RMT_TIME_SECOND;
         }else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
             if(redis_rdb_file_read(rdb, (&t64), 8) != RMT_OK){
-                log_error("redis rdb file %s read 8 expiretime error", 
+                log_error("ERROR: redis rdb file %s read 8 expiretime error", 
                     rdb->fname);
                 goto eoferr;
             }
@@ -5478,7 +5478,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             expiretime = (long long)t64;
             
             if(redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK){
-                log_error("redis rdb file %s read type error", 
+                log_error("ERROR: redis rdb file %s read type error", 
                     rdb->fname);
                 goto eoferr;
             }
@@ -5493,7 +5493,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         if (type == REDIS_RDB_OPCODE_SELECTDB){
             if((dbid = redis_rdb_file_load_len(rdb, NULL)) 
                 == REDIS_RDB_LENERR){
-                log_error("redis rdb file %s read db num error", 
+                log_error("ERROR: redis rdb file %s read db num error", 
                     rdb->fname);
                 goto eoferr;
             }
@@ -5503,20 +5503,20 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         }
 
         if ((key = redis_rdb_file_load_str(rdb)) == NULL){
-            log_error("redis rdb file %s read key error", 
+            log_error("ERROR: redis rdb file %s read key error", 
                 rdb->fname);
             goto eoferr;
         }
 
         if ((value = redis_rdb_file_load_value(rdb, type)) == NULL){
-            log_error("redis rdb file %s read value error", 
+            log_error("ERROR: redis rdb file %s read value error", 
                 rdb->fname);
             goto eoferr;
         }
 
         data_type = redis_object_type_get_by_rdbtype(type);
         if(data_type < 0){
-            log_error("get redis object type by rdbtype failed");
+            log_error("ERROR: get redis object type by rdbtype failed");
             goto error;
         }
 
@@ -5547,14 +5547,14 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
         trnode = trgroup->get_backend_node(trgroup, (uint8_t *)key, (uint32_t)sdslen(key));
         if(trnode == NULL){
-            log_error("Get key %s backend node is NULL", key);
+            log_error("ERROR: Get key %s backend node is NULL", key);
             goto error;
         }
 
         msg = redis_generate_msg_with_key_value(ctx, mb, data_type, 
             key, value, expiretime_type, expiretime_str);
         if(msg == NULL){
-            log_error("generate msg with key value failed");
+            log_error("ERROR: generate msg with key value failed");
             goto error;
         }
 
@@ -5587,7 +5587,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
                 expiretime_type, expiretime_str);
             if(msg == NULL)
             {
-                log_error("generate msg with key value failed");
+                log_error("ERROR: generate msg with key value failed");
                 goto error;
             }
 
@@ -5657,7 +5657,7 @@ again:
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
     
-    log_error("Short read or OOM loading DB. Unrecoverable error, aborting now.");
+    log_error("ERROR: Short read or OOM loading DB. Unrecoverable error, aborting now.");
 
 error:
 
@@ -5707,14 +5707,14 @@ int redis_parse_rdb_time(aeEventLoop *el, long long id, void *privdata)
         ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
-            log_error("Create ae read event for node %s parse_request failed", 
+            log_error("ERROR: Create ae read event for node %s parse_request failed", 
                 srnode->addr);
             return AE_NOMORE;
         }
 
         notice_write_thread(srnode);
     }else{
-        log_error("Rdb file for node[%s] parsed failed", srnode->addr);
+        log_error("ERROR: Rdb file for node[%s] parsed failed", srnode->addr);
     }
 
     return AE_NOMORE;
@@ -5753,7 +5753,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
         ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
-            log_error("Create ae read event for node %s parse_request failed", 
+            log_error("ERROR: Create ae read event for node %s parse_request failed", 
                 srnode->addr);
             return;
         }
@@ -5762,7 +5762,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
     }else{
         aeDeleteFileEvent(write_data->loop, 
             srnode->sk_event, AE_WRITABLE);
-        log_error("Rdb file for node[%s] parsed failed", srnode->addr);
+        log_error("ERROR: Rdb file for node[%s] parsed failed", srnode->addr);
     }
 
     close(srnode->sk_event);
@@ -5918,7 +5918,7 @@ static int cluster_update_route_with_nodes(
 
     tc = rmt_tcp_context_create();
     if(tc == NULL){
-        log_error("create tcp_context failed: out of memory");
+        log_error("ERROR: create tcp_context failed: out of memory");
         goto error;
     }
 
@@ -5926,26 +5926,26 @@ static int cluster_update_route_with_nodes(
     ret = rmt_tcp_context_connect_addr(tc, node->addr, 
         (int)rmt_strlen(node->addr), NULL, NULL);
     if(ret != RMT_OK){
-        log_error("connect to %s failed", node->addr);
+        log_error("ERROR: connect to %s failed", node->addr);
         goto error;
     }
 
     buf = rmt_alloc(102400*sizeof(*buf));
     if(buf == NULL){
-        log_error("out of memory");
+        log_error("ERROR: out of memory");
         goto error;
     }
     
     if (rmt_sync_write(tc->sd,REDIS_COMMAND_CLUSTER_NODES,
         rmt_strlen(REDIS_COMMAND_CLUSTER_NODES),1000) == -1){
-        log_error("send to %s command %s failed", 
+        log_error("ERROR: send to %s command %s failed", 
             node->addr, REDIS_COMMAND_CLUSTER_NODES);
         goto error;
     }
 
     /* Read the reply from the server. */
     if ((buf_len = (int)rmt_redis_sync_read_string(tc->sd,buf,1000)) == -1){
-        log_error("read from %s command %s failed: %s", 
+        log_error("ERROR: read from %s command %s failed: %s", 
             node->addr, REDIS_COMMAND_CLUSTER_NODES, strerror(errno));
         goto error;
     }
@@ -5954,13 +5954,13 @@ static int cluster_update_route_with_nodes(
 
     nodes = dictCreate(&groupNodesDictType, NULL);
     if(nodes == NULL){
-        log_error("create nodes dict failed: out of memory");
+        log_error("ERROR: create nodes dict failed: out of memory");
         goto error;
     }
 
     table = array_create(REDIS_CLUSTER_SLOTS, sizeof(redis_node *));
     if(table == NULL){
-        log_error("create cluster route table array failed: out of memory");
+        log_error("ERROR: create cluster route table array failed: out of memory");
         goto error;
     }
 
@@ -5982,7 +5982,7 @@ static int cluster_update_route_with_nodes(
             part = sdssplitlen(line_start, len + 1, " ", 1, &count_part);
 
             if(part == NULL || count_part < 8){
-                log_error("split cluster nodes error");
+                log_error("ERROR: split cluster nodes error");
                 goto error;
             }
 
@@ -6011,26 +6011,26 @@ static int cluster_update_route_with_nodes(
             //add master node
             if(role_len >= 6 && memcmp(role, "master", 6) == 0){
                 if(count_part < 8){
-                    log_error("master node part number error");
+                    log_error("ERROR: master node part number error");
                     goto error;
                 }
                 
                 master = rmt_alloc(sizeof(*master));
                 if(master == NULL){
-                    log_error("out of memory");
+                    log_error("ERROR: out of memory");
                     goto error;
                 }
 
                 ret = redis_node_init(master, part[1], rgroup);
                 if(ret != RMT_OK){
-                    log_error("target redis node init failed");
+                    log_error("ERROR: target redis node init failed");
                     goto error;
                 }
 
                 ret = dictAdd(nodes, sdsnewlen(master->addr, 
                     sdslen(master->addr)), master);
                 if(ret != DICT_OK){
-                    log_error("the address already exists in the nodes");
+                    log_error("ERROR: the address already exists in the nodes");
                     redis_node_deinit(master);
                     rmt_free(master);
                     goto error;
@@ -6041,7 +6041,7 @@ static int cluster_update_route_with_nodes(
                         (int)sdslen(part[k]), "-", 1, &count_slot_start_end);
                     
                     if(slot_start_end == NULL){
-                        log_error("split slot start end error(NULL)");
+                        log_error("ERROR: split slot start end error(NULL)");
                         goto error;
                     }else if(count_slot_start_end == 1){
                         slot_start = 
@@ -6069,7 +6069,7 @@ static int cluster_update_route_with_nodes(
                     for(j = slot_start; j <= slot_end; j ++){
                         trnode = array_get(table, (uint32_t)j);
                         if(*trnode != NULL){
-                            log_error("nodes %s and %s hold a same slot %d",
+                            log_error("ERROR: nodes %s and %s hold a same slot %d",
                                 (*trnode)->addr, master->addr, j);
                             goto error;
                         }
@@ -6164,7 +6164,6 @@ error:
     return RMT_ERROR;
 }
 
-
 static int cluster_update_route(redis_group *rgroup)
 {
     int ret;
@@ -6177,7 +6176,7 @@ static int cluster_update_route(redis_group *rgroup)
     }
 
     if(rgroup->nodes == NULL){
-        log_error("redis_group->nodes is NULL");
+        log_error("ERROR: redis_group->nodes is NULL");
         return RMT_ERROR;
     }
 
@@ -6194,10 +6193,9 @@ static int cluster_update_route(redis_group *rgroup)
             return RMT_OK;
         }
     }
-    
     dictReleaseIterator(it);
 
-    log_error("no valid server address in the target redis cluster");
+    log_error("ERROR: no valid server address in the target redis cluster");
 
     return RMT_ERROR;
 }
@@ -6216,27 +6214,27 @@ redis_group_add_node(redis_group *rgroup, const char *name, const char *addr)
     if(rgroup->nodes == NULL){
         rgroup->nodes = dictCreate(&groupNodesDictType, NULL);
         if(rgroup->nodes == NULL){
-            log_error("Create nodes dict failed");
+            log_error("ERROR: Create nodes dict failed");
             return NULL;
         }
     }
 
     node_entry = dictFind(rgroup->nodes, name);
     if(node_entry != NULL){
-        log_error("Add node to redis group failed: node %s already exits",
+        log_error("ERROR: Add node to redis group failed: node %s already exits",
             name);
         return NULL;
     }
     
     node = rmt_alloc(sizeof(*node));
     if(node == NULL){
-        log_error("create redis_node failed: out of memory");
+        log_error("ERROR: create redis_node failed: out of memory");
         return NULL;
     }
 
     ret = redis_node_init(node, addr, rgroup);
     if(ret != RMT_OK){
-        log_error("Redis node init failed");
+        log_error("ERROR: Redis node init failed");
         rmt_free(node);
         return NULL;
     }
@@ -6260,14 +6258,14 @@ int redis_cluster_init_from_addrs(redis_group *rgroup, const char *addrs)
     address = sdssplitlen(addrs, (int)rmt_strlen(addrs), ADDRESS_SEPARATOR, 
         (int)rmt_strlen(ADDRESS_SEPARATOR), &address_count);
     if(address == NULL || address_count <= 0){
-        log_error("Redis cluster address is error");
+        log_error("ERROR: Redis cluster address is error");
         goto error;
     }
 
     for(i = 0; i < address_count; i ++){
         if(redis_group_add_node(rgroup, 
             address[i], address[i]) == NULL){
-            log_error("Redis group add node[%s] failed", 
+            log_error("ERROR: Redis group add node[%s] failed", 
                 address[i]);
             goto error;
         }
@@ -6306,7 +6304,7 @@ int redis_cluster_init_from_conf(redis_group *rgroup, conf_pool *cp)
         str = array_get(cp->servers, i);
         if(redis_group_add_node(rgroup, *str, *str) == NULL)
         {
-            log_error("Redis group add node[%s] failed", 
+            log_error("ERROR: Redis group add node[%s] failed", 
                 *str);
             return RMT_ERROR;
         }
@@ -6376,14 +6374,14 @@ redis_single_init_from_conf(redis_group *rgroup, conf_pool *cp)
         rnode = redis_group_add_node(rgroup, *str, *str);
         if(rnode == NULL)
         {
-            log_error("Redis group add node[%s] failed", 
+            log_error("ERROR: Redis group add node[%s] failed", 
                 *str);
             return RMT_ERROR;
         }
     }
 
     if(rnode == NULL){
-        log_error("No servers in the conf file");
+        log_error("ERROR: No servers in the conf file");
         return RMT_ERROR;
     }
 
@@ -6393,7 +6391,7 @@ redis_single_init_from_conf(redis_group *rgroup, conf_pool *cp)
     ASSERT(rgroup->route == NULL);
     rgroup->route = array_create(1, sizeof(redis_node *));
     if(rgroup->route == NULL){
-        log_error("Create single route failed: out of memory");
+        log_error("ERROR: Create single route failed: out of memory");
         return RMT_ENOMEM;
     }
 
@@ -6496,7 +6494,7 @@ redis_twem_init_route_with_ketama(redis_group *rgroup, struct array *nodes, uint
     ASSERT(rgroup->route == NULL);
     rgroup->route = array_create(ncontinuum, sizeof(struct continuum));
     if(rgroup->route == NULL){
-        log_error("Create twemproxy route failed: out of memory");
+        log_error("ERROR: Create twemproxy route failed: out of memory");
         return RMT_ENOMEM;
     }
  
@@ -6577,7 +6575,7 @@ redis_twem_init_route_with_modula(redis_group *rgroup, struct array *nodes, uint
     ASSERT(rgroup->route == NULL);
     rgroup->route = array_create(ncontinuum, sizeof(struct continuum));
     if(rgroup->route == NULL){
-        log_error("Create twemproxy route failed: out of memory");
+        log_error("ERROR: Create twemproxy route failed: out of memory");
         return RMT_ENOMEM;
     }
     
@@ -6640,7 +6638,7 @@ redis_twem_init_route_with_random(redis_group *rgroup, struct array *nodes, uint
     ASSERT(rgroup->route == NULL);
     rgroup->route = array_create(ncontinuum, sizeof(struct continuum));
     if(rgroup->route == NULL){
-        log_error("Create twemproxy route failed: out of memory");
+        log_error("ERROR: Create twemproxy route failed: out of memory");
         return RMT_ENOMEM;
     }
 
@@ -6698,7 +6696,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
 
     ret = array_init(&nodes, node_count, sizeof(*node));
     if(ret != RMT_OK){
-        log_error("Init nodes array failed: out of memory");
+        log_error("ERROR: Init nodes array failed: out of memory");
         goto error;
     }
     
@@ -6708,7 +6706,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
         str_server = array_get(cp->servers, i);
         parts = sdssplitlen(*str_server,(int)sdslen(*str_server)," ",1,&parts_count);
         if(parts == NULL || parts_count == 0){
-            log_error("Server %s in twemproxy split by space error",
+            log_error("ERROR: Server %s in twemproxy split by space error",
                 *str_server);
             goto error;
         }
@@ -6719,7 +6717,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
             node->name = parts[1];
             parts[1] = NULL;
         }else{
-            log_error("Server %s in twemproxy split by space error",
+            log_error("ERROR: Server %s in twemproxy split by space error",
                 *str_server);
             goto error;
         }
@@ -6727,7 +6725,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
         ip_port_weight = sdssplitlen(parts[0],(int)sdslen(parts[0]),
             ":", 1, &ip_port_weight_count);
         if(ip_port_weight == NULL || ip_port_weight_count != 3){
-            log_error("Server %s in twemproxy split by : error",
+            log_error("ERROR: Server %s in twemproxy split by : error",
                 *str_server);
             goto error;
         }
@@ -6741,7 +6739,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
         
         node->node = redis_group_add_node(rgroup, node->name, parts[0]);
         if(node->node == NULL){
-            log_error("Redis group add node[%s] failed", 
+            log_error("ERROR: Redis group add node[%s] failed", 
                 parts[0]);
             goto error;
         }
@@ -6763,13 +6761,13 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
         ret = redis_twem_init_route_with_random(rgroup, &nodes, total_weight);
         break;
     default:
-        log_error("Unknow distribution");
+        log_error("ERROR: Unknow distribution");
         goto error;
         break;
     }
 
     if(ret != RMT_OK){
-        log_error("Init route table failed");
+        log_error("ERROR: Init route table failed");
         goto error;
     }
 
@@ -6883,7 +6881,7 @@ redis_twem_backend_idx(redis_group *rgroup, uint8_t *key, uint32_t keylen)
         idx = redis_twem_random_dispatch(rgroup->route, rgroup->ncontinuum, hash);
         break;
     default:
-        log_error("Unknow distribution");
+        log_error("ERROR: Unknow distribution");
         NOT_REACHED();
         break;
     }
@@ -6917,7 +6915,7 @@ redis_twem_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen)
         idx = redis_twem_random_dispatch(rgroup->route, rgroup->ncontinuum, hash);
         break;
     default:
-        log_error("Unknow distribution");
+        log_error("ERROR: Unknow distribution");
         NOT_REACHED();
         break;
     }
@@ -6948,7 +6946,7 @@ int redis_rdb_file_init_from_conf(redis_group *rgroup, conf_pool *cp)
         str = array_get(cp->servers, i);
         if(redis_group_add_node(rgroup, *str, *str) == NULL)
         {
-            log_error("Redis group add node[%s] failed", 
+            log_error("ERROR: Redis group add node[%s] failed", 
                 *str);
             return RMT_ERROR;
         }

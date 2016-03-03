@@ -296,7 +296,7 @@ _rmt_alloc(size_t size, const char *name, int line)
     p = malloc(size);
 #endif
     if (p == NULL) {
-        log_error("malloc(%zu) failed @ %s:%d", size, name, line);
+        log_error("ERROR: malloc(%zu) failed @ %s:%d", size, name, line);
     } else {
         log_debug(LOG_VVVERB, "malloc(%zu) at %p @ %s:%d", size, p, name, line);
     }
@@ -335,7 +335,7 @@ _rmt_realloc(void *ptr, size_t size, const char *name, int line)
     p = realloc(ptr, size);
 #endif
     if (p == NULL) {
-        log_error("realloc(%zu) failed @ %s:%d", size, name, line);
+        log_error("ERROR: realloc(%zu) failed @ %s:%d", size, name, line);
     } else {
         log_debug(LOG_VVVERB, "realloc(%zu) at %p @ %s:%d", size, p, name, line);
     }
@@ -394,7 +394,7 @@ rmt_stacktrace_fd(int fd)
 void
 rmt_assert(const char *cond, const char *file, int line, int panic)
 {
-    log_error("assert '%s' failed @ (%s, %d)", cond, file, line);
+    log_error("Assert '%s' failed @ (%s, %d)", cond, file, line);
     if (panic) {
         rmt_stacktrace(1);
         abort();
@@ -454,7 +454,7 @@ rmt_usec_now(void)
 
     status = gettimeofday(&now, NULL);
     if (status < 0) {
-        log_error("gettimeofday failed: %s", strerror(errno));
+        log_error("ERROR: gettimeofday failed: %s", strerror(errno));
         return -1;
     }
 

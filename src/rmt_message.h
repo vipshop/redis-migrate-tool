@@ -229,4 +229,18 @@ int msg_used_up(void);
 int msg_used_down(void);
 #endif
 
+int msg_check(struct msg *msg, int panic);
+
+#ifdef RMT_ASSERT_PANIC
+#define MSG_CHECK(_x) do {      \
+    msg_check(_x, 1);           \
+} while (0)
+#elif RMT_ASSERT_LOG
+#define MSG_CHECK(_x) do {      \
+    msg_check(_x, 0);           \
+} while (0)
+#else
+#define MSG_CHECK(_x)
+#endif
+
 #endif

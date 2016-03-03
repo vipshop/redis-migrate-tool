@@ -207,7 +207,7 @@ conf_pool_set_type(void *obj, conf_option *opt, void *data)
     char **type;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("Conf pool %s in the conf file error",
+        log_error("ERROR: Conf pool %s in the conf file error",
             opt->name);
         return RMT_ERROR;
     }
@@ -223,7 +223,7 @@ conf_pool_set_type(void *obj, conf_option *opt, void *data)
     }    
 
     if(*gt == CONF_UNSET_GROUP){
-        log_error("Conf pool type in the conf file can not be %s", 
+        log_error("ERROR: Conf pool type in the conf file can not be %s", 
             cv->value);
         return RMT_ERROR;
     }
@@ -240,7 +240,7 @@ conf_pool_set_hash(void *obj, conf_option *opt, void *data)
     char **hash;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("Conf pool %s in the conf file error", 
+        log_error("ERROR: Conf pool %s in the conf file error", 
             opt->name);
         return RMT_ERROR;
     }
@@ -256,7 +256,7 @@ conf_pool_set_hash(void *obj, conf_option *opt, void *data)
     }    
 
     if(*gt == CONF_UNSET_HASH){
-        log_error("Conf pool hash in the conf file can not be %s", 
+        log_error("ERROR: Conf pool hash in the conf file can not be %s", 
             cv->value);
         return RMT_ERROR;
     }
@@ -272,7 +272,7 @@ conf_pool_set_hash_tag(void *obj, conf_option *opt, void *data)
     sds *gt, str;
     
     if(cv->type != CONF_VALUE_STRING){
-        log_error("Conf pool %s in the conf file error", 
+        log_error("ERROR: Conf pool %s in the conf file error", 
             opt->name);
         return RMT_ERROR;
     }
@@ -280,14 +280,14 @@ conf_pool_set_hash_tag(void *obj, conf_option *opt, void *data)
     str = cv->value;
 
     if(sdslen(str) < 2){
-        log_error("%s is not a valid hash tag string with two characters", 
+        log_error("ERROR: %s is not a valid hash tag string with two characters", 
             cv->value);
         return RMT_ERROR;
     }
 
     if(*(str) == '"'){
         if(*(str+sdslen(str)-1) != '"'){
-            log_error("%s is not a valid hash tag string with two characters", 
+            log_error("ERROR: %s is not a valid hash tag string with two characters", 
                 cv->value);
             return RMT_ERROR;
         }
@@ -296,7 +296,7 @@ conf_pool_set_hash_tag(void *obj, conf_option *opt, void *data)
     }
 
     if (sdslen(str) != 2) {
-        log_error("%s is not a valid hash tag string with two characters", 
+        log_error("ERROR: %s is not a valid hash tag string with two characters", 
             cv->value);
         return RMT_ERROR;
     }
@@ -318,7 +318,7 @@ conf_pool_set_distribution(void *obj, conf_option *opt, void *data)
     char **dist;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("Conf pool %s in the conf file error",
+        log_error("ERROR: Conf pool %s in the conf file error",
             opt->name);
         return RMT_ERROR;
     }
@@ -334,7 +334,7 @@ conf_pool_set_distribution(void *obj, conf_option *opt, void *data)
     }    
 
     if(*gt == CONF_UNSET_DIST){
-        log_error("Conf pool distribution in the conf file can not be %s", 
+        log_error("ERROR: Conf pool distribution in the conf file can not be %s", 
             cv->value);
         return RMT_ERROR;
     }
@@ -352,7 +352,7 @@ conf_pool_set_servers(void *obj, conf_option *opt, void *data)
     uint32_t i, count;
 
     if(cv->type != CONF_VALUE_ARRAY){
-        log_error("Conf pool %s in the conf file is not a string", 
+        log_error("ERROR: Conf pool %s in the conf file is not a string", 
             opt->name);
         return RMT_ERROR;
     }
@@ -360,7 +360,7 @@ conf_pool_set_servers(void *obj, conf_option *opt, void *data)
     count = array_n(cv->value);
 
     if(count == 0){
-        log_error("Conf pool %s in the conf file has no elements",
+        log_error("ERROR: Conf pool %s in the conf file has no elements",
             opt->name);
         return RMT_ERROR;
     }
@@ -371,7 +371,7 @@ conf_pool_set_servers(void *obj, conf_option *opt, void *data)
     if(*gt == NULL){
         *gt = array_create(count, sizeof(sds));
         if(*gt == NULL){
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             return RMT_ENOMEM;
         }
     }
@@ -380,7 +380,7 @@ conf_pool_set_servers(void *obj, conf_option *opt, void *data)
         cv_sub = array_get(cv->value, i);
         
         if((*cv_sub)->type != CONF_VALUE_STRING){
-            log_error("Conf pool %s in the conf file is array," 
+            log_error("ERROR: Conf pool %s in the conf file is array," 
                 "but element is not string", opt->name);
             return RMT_ERROR;
         }
@@ -403,7 +403,7 @@ conf_common_set_maxmemory(void *obj, conf_option *opt, void *data)
     long long *gt;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error", 
+        log_error("ERROR: conf pool %s in the conf file error", 
             opt->name);
         return RMT_ERROR;
     }
@@ -413,7 +413,7 @@ conf_common_set_maxmemory(void *obj, conf_option *opt, void *data)
 
     value = size_string_to_integer_byte(cv->value, sdslen(cv->value));
     if(value == 0){
-        log_error("Value for the key %s in conf file is invalid", 
+        log_error("ERROR: Value for the key %s in conf file is invalid", 
              opt->name);
         return RMT_ERROR;
     }
@@ -431,7 +431,7 @@ conf_set_string(void *obj, conf_option *opt, void *data)
     sds *gt;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("Conf pool %s in the conf file is not a string", 
+        log_error("ERROR: Conf pool %s in the conf file is not a string", 
             opt->name);
         return RMT_ERROR;
     }
@@ -452,7 +452,7 @@ conf_set_num(void *obj, conf_option *opt, void *data)
     int *gt;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error", 
+        log_error("ERROR: conf pool %s in the conf file error", 
             opt->name);
         return RMT_ERROR;
     }
@@ -461,7 +461,7 @@ conf_set_num(void *obj, conf_option *opt, void *data)
     gt = (int*)(p + opt->offset);
 
     if(!sdsIsNum(cv->value)){
-        log_error("Value of the key %s in conf file is not a number", 
+        log_error("ERROR: Value of the key %s in conf file is not a number", 
             opt->name);
         return RMT_ERROR;
     }
@@ -479,7 +479,7 @@ conf_set_bool(void *obj, conf_option *opt, void *data)
     int *gt;
 
     if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error", 
+        log_error("ERROR: conf pool %s in the conf file error", 
             opt->name);
         return RMT_ERROR;
     }
@@ -492,7 +492,7 @@ conf_set_bool(void *obj, conf_option *opt, void *data)
     }else if(strcmp(cv->value, CONF_VALUE_FALSE) == 0){
         *gt = 0;
     }else{
-        log_error("Key %s in conf file must be %s or %s",
+        log_error("ERROR: Key %s in conf file must be %s or %s",
             opt->name, CONF_VALUE_TRUE, CONF_VALUE_FALSE);
         return RMT_ERROR;
     }
@@ -604,7 +604,7 @@ static int conf_pool_init(conf_pool *cp)
 
     cp->servers = array_create(3, sizeof(sds));
     if(cp->servers == NULL){
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         return RMT_ENOMEM;
     }
 
@@ -786,23 +786,23 @@ static int
 conf_key_value_insert(dict *org, sds key, conf_value *cv)
 {
     if(key == NULL){
-        log_error("Value in conf file has no key");
+        log_error("ERROR: Value in conf file has no key");
         return RMT_ERROR;
     }
 
     if(cv == NULL){
-        log_error("Key %s in conf file has no value", key);
+        log_error("ERROR: Key %s in conf file has no value", key);
         return RMT_ERROR;
     }
 
     if(org == NULL){
-        log_error("Key %s in conf file has no organization", 
+        log_error("ERROR: Key %s in conf file has no organization", 
             key);
         return RMT_ERROR;
     }
     
     if(dictAdd(org,key,cv) != DICT_OK){
-        log_error("Key %s in organization of conf file is duplicate", key);
+        log_error("ERROR: Key %s in organization of conf file is duplicate", key);
         return RMT_ERROR;
     }
 
@@ -836,7 +836,7 @@ conf_pre_validate(rmt_conf *cf)
         if (fgets(line,256,fh) == NULL) {
             if(feof(fh)) break;
             
-            log_error("Read a line from conf file %s failed: %s", 
+            log_error("ERROR: Read a line from conf file %s failed: %s", 
                 cf->fname, strerror(errno));
             goto error;
         }
@@ -855,7 +855,7 @@ conf_pre_validate(rmt_conf *cf)
         ASSERT(str == NULL);
         str = sdsnew(line);
         if(str == NULL){
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
 
@@ -874,7 +874,7 @@ conf_pre_validate(rmt_conf *cf)
             content_comment = sdssplitlenonce(str, sdslen(str), 
                 "#", 1, &content_comment_count);
             if(content_comment == NULL || content_comment_count != 2){
-                log_error("Split content and comment error.");
+                log_error("ERROR: Split content and comment error.");
                 goto error;
             }
 
@@ -893,7 +893,7 @@ conf_pre_validate(rmt_conf *cf)
             continue;
         }else if(*str == '['){
             if(sdslen(str) <= 2 || *(str+sdslen(str)-1) != ']') {
-                log_error("Organization name %s in conf file %s error",
+                log_error("ERROR: Organization name %s in conf file %s error",
                     str, cf->fname);
                 goto error;
             }
@@ -901,7 +901,7 @@ conf_pre_validate(rmt_conf *cf)
             if(key != NULL || cv != NULL){
                 ret = conf_key_value_insert(organization, key, cv);
                 if(ret != RMT_OK){
-                    log_error("Key value insert into organization failed");
+                    log_error("ERROR: Key value insert into organization failed");
                     goto error;
                 }
                 organization = NULL;
@@ -915,21 +915,21 @@ conf_pre_validate(rmt_conf *cf)
             str = NULL;
 
             if(sdslen(org_name) == 0){
-                log_error("Organization name %s in conf file %s error",
+                log_error("ERROR: Organization name %s in conf file %s error",
                     str, cf->fname);
                 goto error;
             }
 
             organization = dictCreate(&KeyValueDictType, NULL);
             if(organization == NULL){
-                log_error("Create dict organization %s failed", 
+                log_error("ERROR: Create dict organization %s failed", 
                     org_name);
                 goto error;
             }
 
             ret = dictAdd(cf->organizations, org_name, organization);
             if(ret != DICT_OK){
-                log_error("Organization %s in conf file is duplicate", 
+                log_error("ERROR: Organization %s in conf file is duplicate", 
                     org_name);
                 goto error;
             }
@@ -937,7 +937,7 @@ conf_pre_validate(rmt_conf *cf)
         }else if(*str == '-'){
             
             if(cv == NULL || cv->type != CONF_VALUE_ARRAY){
-                log_error("Array %s in conf file %s has wrong conf value",
+                log_error("ERROR: Array %s in conf file %s has wrong conf value",
                     str, cf->fname);
                 goto error;
             }
@@ -948,7 +948,7 @@ conf_pre_validate(rmt_conf *cf)
             cv_sub = array_push(cv->value);
             *cv_sub = conf_value_create(CONF_VALUE_STRING);
             if(*cv_sub == NULL){
-                log_error("Conf value create failed");
+                log_error("ERROR: Conf value create failed");
                 goto error;
             }
             
@@ -958,10 +958,10 @@ conf_pre_validate(rmt_conf *cf)
             key_value = sdssplitlenonce(str,sdslen(str),":",1,&key_value_count);
             log_debug(LOG_VVERB, "key_value_count: %d", key_value_count);
             if(key_value == NULL || key_value_count == 0){
-                log_error("line %s split by : failed", str);
+                log_error("ERROR: line %s split by : failed", str);
                 goto error;
             }else if(key_value_count == 1){
-                log_error("Line %s in conf file %s has no :", 
+                log_error("ERROR: Line %s in conf file %s has no :", 
                     str, cf->fname);
                 goto error;
             }else if(key_value_count == 2){           
@@ -969,7 +969,7 @@ conf_pre_validate(rmt_conf *cf)
                 if(key != NULL || cv != NULL){
                     ret = conf_key_value_insert(organization, key, cv);
                     if(ret != RMT_OK){
-                        log_error("Key value insert into organization failed");
+                        log_error("ERROR: Key value insert into organization failed");
                         goto error;
                     }
                     key = NULL;
@@ -983,7 +983,7 @@ conf_pre_validate(rmt_conf *cf)
                     ASSERT(cv == NULL);
                     cv = conf_value_create(CONF_VALUE_ARRAY);
                     if(cv == NULL){
-                        log_error("Conf value create failed");
+                        log_error("ERROR: Conf value create failed");
                         goto error;
                     }
 
@@ -997,7 +997,7 @@ conf_pre_validate(rmt_conf *cf)
                 ASSERT(cv == NULL);
                 cv = conf_value_create(CONF_VALUE_STRING);
                 if(cv == NULL){
-                    log_error("Conf value create failed");
+                    log_error("ERROR: Conf value create failed");
                     goto error;
                 }
 
@@ -1005,13 +1005,13 @@ conf_pre_validate(rmt_conf *cf)
                 key_value[1] = NULL;
 
                 if(organization == NULL){
-                    log_error("line %s in conf file %s has no organization", 
+                    log_error("ERROR: line %s in conf file %s has no organization", 
                         str, cf->fname);
                     goto error;
                 }
                 ret = dictAdd(organization,key_value[0],cv);
                 if(ret != DICT_OK){
-                    log_error("Key %s in organization of conf file is duplicate", 
+                    log_error("ERROR: Key %s in organization of conf file is duplicate", 
                         key_value[0]);
                     goto error;
                 }
@@ -1027,7 +1027,7 @@ conf_pre_validate(rmt_conf *cf)
     if(key != NULL || cv != NULL){
         ret = conf_key_value_insert(organization, key, cv);
         if(ret != RMT_OK){
-            log_error("Key value insert into organization failed");
+            log_error("ERROR: Key value insert into organization failed");
             goto error;
         }
         key = NULL;

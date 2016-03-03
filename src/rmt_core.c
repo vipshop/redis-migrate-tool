@@ -20,14 +20,14 @@ static int read_thread_data_init(read_thread_data *rdata)
     rdata->loop = aeCreateEventLoop(1000);
     if(rdata->loop == NULL)
     {
-    	log_error("error: create event loop failed");
+    	log_error("ERROR: create event loop failed");
         return RMT_ERROR;
     }
     
 	rdata->nodes_data = listCreate();
 	if(rdata->nodes_data == NULL)
 	{
-		log_error("create node list failed: out of memory");
+		log_error("ERROR: create node list failed: out of memory");
 		return RMT_ENOMEM;
 	}
 	
@@ -77,33 +77,33 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 	wdata->loop = aeCreateEventLoop(1000);
     if(wdata->loop == NULL)
     {
-    	log_error("error: create event loop failed");
+    	log_error("ERROR:  create event loop failed");
         goto error;
     }
 
     wdata->nodes = listCreate();
 	if(wdata->nodes == NULL){
-		log_error("Create node list failed: out of memory");
+		log_error("ERROR: Create node list failed: out of memory");
 		goto error;
 	}
 
     wdata->trgroup = target_group_create(ctx);
     if(wdata->trgroup == NULL){
-        log_error("Target group create failed");
+        log_error("ERROR: Target group create failed");
         goto error;
     }
 
     ret = pipe(wdata->notice_pipe);
     if(ret < 0)
     {
-        log_error("Notice_pipe init failed: %s", strerror(errno));
+        log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
         goto error;
     }
 
     ret = rmt_set_nonblocking(wdata->notice_pipe[0]);
     if(ret < 0)
     {
-        log_error("Set notice_pipe[0] %d nonblock failed: %s", 
+        log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
             wdata->notice_pipe[0], strerror(errno));
         goto error;
     }
@@ -111,7 +111,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     ret = rmt_set_nonblocking(wdata->notice_pipe[1]);
     if(ret < 0)
     {
-        log_error("Set notice_pipe[1] %d nonblock failed: %s", 
+        log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
             wdata->notice_pipe[1], strerror(errno));
         goto error;
     }
@@ -385,7 +385,7 @@ static int read_write_threads_create(rmtContext *ctx,
                     AE_READABLE, parse_prepare, rnode);
                 if(ret != AE_OK)
                 {
-                    log_error("Create readable notice event for node[%s] fd %d "
+                    log_error("ERROR: Create readable notice event for node[%s] fd %d "
                         "on the write thread %ld failed: %s",
                         rnode->addr, rnode->notice_pipe[0],
                         write_data->thread_id, strerror(errno));        
@@ -478,7 +478,7 @@ static int read_write_threads_create(rmtContext *ctx,
                         AE_READABLE, parse_prepare, rnode);
                     if(ret != AE_OK)
                     {
-                        log_error("Create readable notice event for node[%s] fd %d "
+                        log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
                             write_data->thread_id, strerror(errno));        
@@ -520,7 +520,7 @@ static int read_write_threads_create(rmtContext *ctx,
                         AE_READABLE, parse_prepare, rnode);
                     if(ret != AE_OK)
                     {
-                        log_error("Create readable notice event for node[%s] fd %d "
+                        log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
                             write_data_min_rnodes->thread_id, 
@@ -616,13 +616,13 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
 		{   
 		    de = dictNext(di);
             if(de == NULL){
-                log_error("Next node in the dict is NULL");
+                log_error("ERROR: Next node in the dict is NULL");
                 goto error;
             }
             
             srnode = dictGetVal(de);
             if(srnode == NULL){
-                log_error("Source redis node in the dict is NULL");
+                log_error("ERROR: Source redis node in the dict is NULL");
                 goto error;
             }
             
@@ -698,7 +698,7 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
 		sizeof(write_thread_data));
     if(write_datas == NULL)
     {
-        log_error("error: out of memory");
+        log_error("ERROR: out of memory");
         goto error;
     }
 
@@ -729,13 +729,13 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
     	{
     		de = dictNext(di);
             if(de == NULL){
-                log_error("Next node in the dict is NULL");
+                log_error("ERROR: Next node in the dict is NULL");
                 goto error;
             }
             
             srnode = dictGetVal(de);
             if(srnode == NULL){
-                log_error("Source redis node in the dict is NULL");
+                log_error("ERROR: Source redis node in the dict is NULL");
                 goto error;
             }
 
@@ -753,7 +753,7 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
                 AE_READABLE, parse_prepare, srnode);
             if(ret != AE_OK)
             {
-                log_error("create readable notice event for node[%s] fd %d "
+                log_error("ERROR: create readable notice event for node[%s] fd %d "
                     "on the write thread %ld failed: %s",
                     srnode->addr, srnode->notice_pipe[0],
                     write_data->thread_id, strerror(errno));        
@@ -871,7 +871,7 @@ static void *read_thread_run(void *args)
                 AE_READABLE, begin_replication, srnode);
         if(ret != AE_OK)
         {
-            log_error("Create readable notice event for node[%s] fd %d "
+            log_error("ERROR: Create readable notice event for node[%s] fd %d "
                 "to begin replication on the read thread %ld failed: %s",
                 srnode->addr, srnode->notice_read_pipe[0],
                 read_data->thread_id, strerror(errno));
@@ -897,7 +897,7 @@ static void *write_thread_run(void *args)
 
     srnode = listFirstValue(nodes);
     if(srnode == NULL){
-        log_error("No redis nodes for this write thread %ld", 
+        log_error("ERROR: No redis nodes for this write thread %ld", 
             write_data->thread_id);
         return 0;
     }
@@ -914,7 +914,7 @@ static void *write_thread_run(void *args)
             if(srnode->sk_event < 0){
                 srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);
                 if(srnode->sk_event < 0){
-                    log_error("Create sk_event for node[%s] failed: %s", 
+                    log_error("ERROR: Create sk_event for node[%s] failed: %s", 
                         srnode->addr, strerror(errno));
                     return 0;
                 }
@@ -925,7 +925,7 @@ static void *write_thread_run(void *args)
                 AE_WRITABLE, redis_parse_rdb, srnode);
             if(ret == AE_ERR)
             {
-                log_error("Create ae write event for node %s parse rdb file failed", 
+                log_error("ERROR: Create ae write event for node %s parse rdb file failed", 
                     srnode->addr);
                 listReleaseIterator(it);
                 return 0;
@@ -1027,7 +1027,7 @@ again:
     if (listLength(&send_msgl) > 0 && nsend != 0) {
         n = rmt_sendv(fd, &sendv, nsend);
         if(n == RMT_ERROR){
-            log_error("errors on connection with node[%s]", trnode->addr);
+            log_error("ERROR: errors on connection with node[%s]", trnode->addr);
 
             //need reconnect to server
             aeStop(el);
@@ -1052,6 +1052,8 @@ again:
         if (nsent == 0) {
             if (msg->mlen == 0) {
                 //msg send done?
+                log_debug(LOG_NOTICE, "");
+                msg_dump(msg,LOG_NOTICE);
                 NOT_REACHED();
             }
             
@@ -1134,7 +1136,7 @@ again:
 
     msg = trnode->msg_rcv;
     if(msg == NULL){
-        log_error("out of memory");
+        log_error("ERROR: out of memory");
         return;
     }
 
@@ -1142,7 +1144,7 @@ again:
     if(mbuf == NULL || mbuf_full(mbuf)){
         mbuf = mbuf_get(mb);
         if(mbuf == NULL){
-            log_error("mbuf_get NULL");
+            log_error("ERROR: mbuf_get NULL");
             return;
         }
         
@@ -1189,7 +1191,7 @@ again:
     ret = parse_response(trnode);
     if(ret != RMT_OK)
     {
-        log_error("response msg parsed error");
+        log_error("ERROR: response msg parsed error");
         return;
     }
 
@@ -1211,6 +1213,8 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
         listLength(msg->data), trnode->addr);
 
+    MSG_CHECK(msg);
+
     tc = trnode->tc;
 
     if(tc->sd < 0)
@@ -1220,7 +1224,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
             (int)rmt_strlen(trnode->addr), NULL, NULL);
         if(ret != RMT_OK)
         {
-            log_error("connect to %s failed", trnode->addr);
+            log_error("ERROR: connect to %s failed", trnode->addr);
             return RMT_ERROR;
         }
 
@@ -1230,7 +1234,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
             ret = aeCreateFileEvent(write_data->loop, tc->sd, 
                 AE_READABLE, recv_data_from_target, trnode);
             if(ret != AE_OK){
-                log_error("send_data event create %ld failed: %s",
+                log_error("ERROR: send_data event create %ld failed: %s",
                     write_data->thread_id, strerror(errno));
                 return RMT_ERROR;
             }
@@ -1239,13 +1243,13 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
                 trnode->addr, write_data->thread_id);
         }
     }
-
+    
     listAddNodeTail(trnode->send_data, msg);
     ret = aeCreateFileEvent(write_data->loop, tc->sd, 
         AE_WRITABLE, send_data_to_target, trnode);
     if(ret != AE_OK)
     {
-        log_error("send_data event create %ld failed: %s",
+        log_error("ERROR: send_data event create %ld failed: %s",
             write_data->thread_id, strerror(errno));
         return RMT_ERROR;
     }
@@ -1287,7 +1291,7 @@ static int prepare_send_data(redis_node *srnode)
 
     ret = msg->fragment(trgroup, msg, slots, &frag_msgl);
     if (ret != RMT_OK) {
-        log_error("msg fragment failed");
+        log_error("ERROR: msg fragment failed");
         goto error;
     }
 
@@ -1363,7 +1367,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
 
     ret = req->resp_check(req);
     if(ret != RMT_OK){
-        log_error("Response check is error");
+        log_error("ERROR: Response check is error");
         return RMT_ERROR;
     }
 
@@ -1392,7 +1396,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         ret = redis_parse_rdb_file(srnode, -1);
         if(ret != RMT_OK)
         {
-            log_error("redis node %s rdb file parse error", srnode->addr);
+            log_error("ERROR: redis node %s rdb file parse error", srnode->addr);
             aeDeleteFileEvent(write_data->loop, 
                 srnode->notice_pipe[0], AE_READABLE);
             return;
@@ -1402,7 +1406,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
             aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
         ret = aeCreateTimeEvent(write_data->loop, 0, redis_parse_rdb_time, srnode, NULL);
         if(ret == AE_ERR){
-            log_error("Create ae time event for node %s redis_parse_rdb_time failed", 
+            log_error("ERROR: Create ae time event for node %s redis_parse_rdb_time failed", 
                 srnode->addr);
             return;
         }
@@ -1416,7 +1420,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         if(srnode->sk_event < 0){
             srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);
             if(srnode->sk_event < 0){
-                log_error("Create sk_event for node[%s] failed: %s", 
+                log_error("ERROR: Create sk_event for node[%s] failed: %s", 
                     srnode->addr, strerror(errno));
                 return;
             }
@@ -1427,7 +1431,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
             AE_WRITABLE, redis_parse_rdb, srnode);
         if(ret == AE_ERR)
         {
-            log_error("Create ae write event for node %s parse_request failed", 
+            log_error("ERROR: Create ae write event for node %s parse_request failed", 
                 srnode->addr);
             return;
         }
@@ -1442,7 +1446,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         AE_READABLE, parse_request, srnode);
     if(ret != AE_OK)
     {
-        log_error("Create ae read event for node %s parse_request failed", 
+        log_error("ERROR: Create ae read event for node %s parse_request failed", 
             srnode->addr);
         return;
     }
@@ -1487,7 +1491,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
             data_type = REDIS_DATA_TYPE_CMD;
         }
     }else{
-        log_error("recieve data node state is error: %d", rr->repl_state);
+        log_error("ERROR: recieve data node state is error: %d", rr->repl_state);
         return;
     }
     
@@ -1525,7 +1529,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
         msg = trgroup->msg;
         if(msg == NULL){
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             return;
         }
 
@@ -1555,7 +1559,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
             ret = mbuf_move(mbuf_f, mbuf_t, (uint32_t)len);
             if(ret != RMT_OK){
-                log_error("mbuf_f(%d) move data(%d) to mbuf_t(%d) failed",
+                log_error("ERROR: mbuf_f(%d) move data(%d) to mbuf_t(%d) failed",
                     mbuf_length(mbuf_f), len, mbuf_size(mbuf_t));
                 return;
             }
@@ -1571,9 +1575,11 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
             listAddNodeTail(msg->data, mbuf_t);
             msg->pos = mbuf_t->pos;
+            msg->mlen += mbuf_length(mbuf_t);
         }else{
             listAddNodeTail(msg->data, mbuf_f);
             msg->pos = mbuf_f->pos;
+            msg->mlen += mbuf_length(mbuf_f);
         }
 
         msg_dump(msg, LOG_VVERB);
@@ -1592,7 +1598,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
             nbuf = msg_split(msg, msg->pos);
             if (nbuf == NULL) {
-                log_error("split msg failed: out of memory");
+                log_error("ERROR: split msg failed: out of memory");
                 return;
             }
     
@@ -1606,7 +1612,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 msg_type_string(msg->type));
             nbuf = msg_split(msg, msg->pos);
             if (nbuf == NULL) {
-                log_error("split msg failed: out of memory");
+                log_error("ERROR: split msg failed: out of memory");
                 return;
             }
 
@@ -1646,7 +1652,7 @@ int parse_response(redis_node *trnode)
     msg = trnode->msg_rcv;
     if(msg == NULL)
     {
-        log_error("trnode->msg_rcv is null");
+        log_error("ERROR: trnode->msg_rcv is null");
         return RMT_ERROR;
     }
 
@@ -1661,7 +1667,7 @@ int parse_response(redis_node *trnode)
             log_debug(LOG_DEBUG, "msg->pos == mbuf->last");
             ret = response_done(trnode, msg);
             if(ret != RMT_OK){
-                log_error("response done error");
+                log_error("ERROR: response done error");
             }
             
             return RMT_OK;
@@ -1669,7 +1675,7 @@ int parse_response(redis_node *trnode)
 
         nbuf = msg_split(msg, msg->pos);
         if (nbuf == NULL) {
-            log_error("split msg failed: out of memory");
+            log_error("ERROR: split msg failed: out of memory");
             return RMT_ERROR;
         }
 
@@ -1679,12 +1685,12 @@ int parse_response(redis_node *trnode)
         //check response
         ret = response_done(trnode, msg);
         if(ret != RMT_OK){
-            log_error("response done error");
+            log_error("ERROR: response done error");
         }
 
         nmsg = msg_get(mb, 0, 0);
         if(nmsg == NULL){
-            log_error("msg_get null");
+            log_error("ERROR: msg_get null");
             return RMT_ERROR;
         }
 
@@ -1700,7 +1706,7 @@ int parse_response(redis_node *trnode)
         log_debug(LOG_DEBUG, "response msg parse repair");
         nbuf = msg_split(msg, msg->pos);
         if (nbuf == NULL) {
-            log_error("split msg failed: out of memory");
+            log_error("ERROR: split msg failed: out of memory");
             return RMT_ERROR;
         }
 
@@ -1745,14 +1751,14 @@ group_create_from_option(rmtContext *ctx, char *addrs, int type, int source)
     //init the source group
     rgroup = rmt_alloc(sizeof(*rgroup));
     if(rgroup == NULL){
-        log_error("Out of memory");
+        log_error("ERROR: Out of memory");
         goto error;
     }    
 
     if(type == GROUP_TYPE_RCLUSTER){
         ret = redis_cluster_init_from_addrs(rgroup, addrs);
         if(ret != RMT_OK){
-            log_error("Init redis cluster from option failed");
+            log_error("ERROR: Init redis cluster from option failed");
             goto error;
         }
 
@@ -1763,7 +1769,7 @@ group_create_from_option(rmtContext *ctx, char *addrs, int type, int source)
     }
 
     if(type != GROUP_TYPE_SINGLE){
-        log_error("Group type in the option must be single and redis cluster");
+        log_error("ERROR: Group type in the option must be single and redis cluster");
         goto error;
     }
 
@@ -1773,7 +1779,7 @@ group_create_from_option(rmtContext *ctx, char *addrs, int type, int source)
         ADDRESS_SEPARATOR, rmt_strlen(ADDRESS_SEPARATOR), &servers_count);
     if(servers == NULL || servers_count <= 0)
     {
-        log_error("address parsed error");
+        log_error("ERROR: address parsed error");
         goto error;
     }
 
@@ -1781,14 +1787,14 @@ group_create_from_option(rmtContext *ctx, char *addrs, int type, int source)
 
     ret = redis_group_init(ctx, rgroup, NULL, source);
     if(ret != RMT_OK){
-        log_error("Init source group from option failed");
+        log_error("ERROR: Init source group from option failed");
         goto error;
     }
 
     for(i = 0; i < servers_count; i ++){
         if(redis_group_add_node(rgroup, 
             servers[i], servers[i]) == NULL){
-            log_error("Redis group add node[%s] failed",
+            log_error("ERROR: Redis group add node[%s] failed",
                 servers[i]);
             goto error;
         }
@@ -1834,13 +1840,13 @@ source_group_create(rmtContext *ctx)
         cp = &cf->source_pool;
         srgroup = rmt_alloc(sizeof(*srgroup));
         if(srgroup == NULL){
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
 
         ret = redis_group_init(ctx, srgroup, cp, 1);
         if(ret != RMT_OK){
-            log_error("Source redis group init from conf file failed");
+            log_error("ERROR: Source redis group init from conf file failed");
             goto error;
         }
     }
@@ -1887,13 +1893,13 @@ target_group_create(rmtContext *ctx)
         cp = &cf->target_pool;
         trgroup = rmt_alloc(sizeof(*trgroup));
         if(trgroup == NULL){
-            log_error("Out of memory");
+            log_error("ERROR: Out of memory");
             goto error;
         }
 
         ret = redis_group_init(ctx, trgroup, cp, 0);
         if(ret != RMT_OK){
-            log_error("Target redis group init from conf file failed");
+            log_error("ERROR: Target redis group init from conf file failed");
             goto error;
         }
     }
@@ -1947,7 +1953,7 @@ void redis_migrate(rmtContext *ctx, int type)
     
     thread_count = ctx->thread_count;
     if(thread_count <= 0){
-        log_error("error: thread count <= 0");
+        log_error("ERROR: thread count <= 0");
         return;
     }else if(thread_count == 1){
         thread_count ++;
@@ -2132,7 +2138,7 @@ void group_state(rmtContext *ctx, int type)
     redis_group *rgroup;
 
     if(array_n(&ctx->args) != 1){
-        log_error("Command %s must have one argument" 
+        log_error("ERROR: Command %s must have one argument" 
             " that is 'source' or 'target'.",
             ctx->cmd);
         return;
@@ -2143,14 +2149,14 @@ void group_state(rmtContext *ctx, int type)
     }else if(strcmp(array_get(&ctx->args, 0), "target") == 0){
         rgroup = target_group_create(ctx);
     }else{
-        log_error("Command %s must have one argument" 
+        log_error("ERROR: Command %s must have one argument" 
             " that is 'source' or 'target'.",
             ctx->cmd);
         return;
     }
 
     if(rgroup == NULL){
-        log_error("Group create failed");
+        log_error("ERROR: Group create failed");
         return;
     }
 

@@ -107,7 +107,7 @@ init_context(struct instance *rmti)
 
     cf = conf_create(rmti->conf_filename);
     if(cf == NULL){
-        log_error("Conf create from conf file %s failed", 
+        log_error("ERROR: Conf create from conf file %s failed", 
             rmti->conf_filename);
         destroy_context(rmt_ctx);
         return NULL;
@@ -185,7 +185,7 @@ rmt_daemonize(int dump_core)
     pid = fork();
     switch (pid) {
     case -1:
-        log_error("fork() failed: %s", strerror(errno));
+        log_error("ERROR: fork() failed: %s", strerror(errno));
         return RMT_ERROR;
 
     case 0:
@@ -201,19 +201,19 @@ rmt_daemonize(int dump_core)
 
     sid = setsid();
     if (sid < 0) {
-        log_error("setsid() failed: %s", strerror(errno));
+        log_error("ERROR: setsid() failed: %s", strerror(errno));
         return RMT_ERROR;
     }
 
     if (signal(SIGHUP, SIG_IGN) == SIG_ERR) {
-        log_error("signal(SIGHUP, SIG_IGN) failed: %s", strerror(errno));
+        log_error("ERROR: signal(SIGHUP, SIG_IGN) failed: %s", strerror(errno));
         return RMT_ERROR;
     }
 
     pid = fork();
     switch (pid) {
     case -1:
-        log_error("fork() failed: %s", strerror(errno));
+        log_error("ERROR: fork() failed: %s", strerror(errno));
         return RMT_ERROR;
 
     case 0:
@@ -231,7 +231,7 @@ rmt_daemonize(int dump_core)
     if (dump_core == 0) {
         status = chdir("/");
         if (status < 0) {
-            log_error("chdir(\"/\") failed: %s", strerror(errno));
+            log_error("ERROR: chdir(\"/\") failed: %s", strerror(errno));
             return RMT_ERROR;
         }
     }
@@ -243,27 +243,27 @@ rmt_daemonize(int dump_core)
 
     fd = open("/dev/null", O_RDWR);
     if (fd < 0) {
-        log_error("open(\"/dev/null\") failed: %s", strerror(errno));
+        log_error("ERROR: open(\"/dev/null\") failed: %s", strerror(errno));
         return RMT_ERROR;
     }
 
     status = dup2(fd, STDIN_FILENO);
     if (status < 0) {
-        log_error("dup2(%d, STDIN) failed: %s", fd, strerror(errno));
+        log_error("ERROR: dup2(%d, STDIN) failed: %s", fd, strerror(errno));
         close(fd);
         return RMT_ERROR;
     }
 
     status = dup2(fd, STDOUT_FILENO);
     if (status < 0) {
-        log_error("dup2(%d, STDOUT) failed: %s", fd, strerror(errno));
+        log_error("ERROR: dup2(%d, STDOUT) failed: %s", fd, strerror(errno));
         close(fd);
         return RMT_ERROR;
     }
 
     status = dup2(fd, STDERR_FILENO);
     if (status < 0) {
-        log_error("dup2(%d, STDERR) failed: %s", fd, strerror(errno));
+        log_error("ERROR: dup2(%d, STDERR) failed: %s", fd, strerror(errno));
         close(fd);
         return RMT_ERROR;
     }
@@ -271,7 +271,7 @@ rmt_daemonize(int dump_core)
     if (fd > STDERR_FILENO) {
         status = close(fd);
         if (status < 0) {
-            log_error("close(%d) failed: %s", fd, strerror(errno));
+            log_error("ERROR: close(%d) failed: %s", fd, strerror(errno));
             return RMT_ERROR;
         }
     }
@@ -288,7 +288,7 @@ rmt_create_pidfile(struct instance *rmti)
 
     fd = open(rmti->pid_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        log_error("opening pid file '%s' failed: %s", rmti->pid_filename,
+        log_error("ERROR: opening pid file '%s' failed: %s", rmti->pid_filename,
                   strerror(errno));
         return RMT_ERROR;
     }
@@ -298,7 +298,7 @@ rmt_create_pidfile(struct instance *rmti)
 
     n = rmt_write(fd, pid, pid_len);
     if (n < 0) {
-        log_error("write to pid file '%s' failed: %s", rmti->pid_filename,
+        log_error("ERROR: write to pid file '%s' failed: %s", rmti->pid_filename,
                   strerror(errno));
         return RMT_ERROR;
     }
@@ -341,7 +341,7 @@ int main(int argc,char *argv[])
     if (rmti.daemonize) {
         status = rmt_daemonize(1);
         if (status != RMT_OK) {
-            log_error("Daemonize failed.");
+            log_error("ERROR: Daemonize failed.");
             return status;
         }
     }
@@ -350,7 +350,7 @@ int main(int argc,char *argv[])
     if (rmti.pid_filename) {
         status = rmt_create_pidfile(&rmti);
         if (status != RMT_OK) {
-            log_error("Create pidfile failed.");
+            log_error("ERROR: Create pidfile failed.");
             return status;
         }        
     }

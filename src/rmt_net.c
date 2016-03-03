@@ -177,7 +177,7 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
     status = setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, &tcpkeepalive, len);
 	if(status < 0)
 	{
-		log_error("error: setsockopt SO_KEEPALIVE call error(%s)", strerror(errno));
+		log_error("ERROR: setsockopt SO_KEEPALIVE call error(%s)", strerror(errno));
 		return RMT_ERROR;
 	}
 	
@@ -187,7 +187,7 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 		status = setsockopt(sd, SOL_TCP, TCP_KEEPIDLE, &keepidle, len);
 		if(status < 0)
 		{
-			log_error("error: setsockopt TCP_KEEPIDLE call error(%s)", strerror(errno));
+			log_error("ERROR: setsockopt TCP_KEEPIDLE call error(%s)", strerror(errno));
 			return RMT_ERROR;
 		}
 	}
@@ -198,7 +198,7 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 		status = setsockopt(sd, SOL_TCP, TCP_KEEPINTVL, &keepinterval, len);
 		if(status < 0)
 		{
-			log_error("error: setsockopt TCP_KEEPINTVL call error(%s)", strerror(errno));
+			log_error("ERROR: setsockopt TCP_KEEPINTVL call error(%s)", strerror(errno));
 			return RMT_ERROR;
 		}
 	}
@@ -209,7 +209,7 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 		status = setsockopt(sd, SOL_TCP, TCP_KEEPCNT, &keepcount, len);
 		if(status < 0)
 		{
-			log_error("error: setsockopt TCP_KEEPCNT call error(%s)", strerror(errno));
+			log_error("ERROR: setsockopt TCP_KEEPCNT call error(%s)", strerror(errno));
 			return RMT_ERROR;
 		}
 	}
@@ -326,7 +326,7 @@ rmt_resolve_inet(char *name, int port, struct sockinfo *si)
 
     status = getaddrinfo(node, service, &hints, &ai);
     if (status < 0) {
-        log_error("address resolution of node '%s' service '%s' failed: %s",
+        log_error("ERROR: address resolution of node '%s' service '%s' failed: %s",
                   node, service, gai_strerror(status));
         return -1;
     }
@@ -520,7 +520,7 @@ static int rmt_tcp_context_wait_ready(
     /* Only use timeout when not NULL. */
     if (timeout != NULL) {
         if (timeout->tv_usec > 1000000 || timeout->tv_sec > RMT_MAX_MSEC) {
-            log_error("error: %s", strerror(errno));
+            log_error("ERROR: %s", strerror(errno));
             rmt_tcp_context_close_sd(tc);
             return RMT_ERROR;
         }
@@ -552,7 +552,7 @@ static int rmt_tcp_context_wait_ready(
         return RMT_OK;
     }
 
-    log_error("error: %s", strerror(errno));
+    log_error("ERROR: %s", strerror(errno));
     rmt_tcp_context_close_sd(tc);
 
     return RMT_ERROR;
@@ -565,7 +565,7 @@ tcp_context *rmt_tcp_context_create(void)
     tc = rmt_alloc(sizeof(*tc));
     if(tc == NULL)
     {
-        log_error("create tcp_context failed: out of memory");
+        log_error("ERROR: create tcp_context failed: out of memory");
         return NULL;
     }
 
@@ -609,13 +609,13 @@ int rmt_tcp_context_check_socket_error(tcp_context *tc) {
     socklen_t errlen = sizeof(err);
 
     if (rmt_getsockopt(tc->sd, SOL_SOCKET, SO_ERROR, &err, &errlen) == -1) {
-        log_error("rmt_getsockopt(SO_ERROR) error: %s", strerror(errno));
+        log_error("ERROR: rmt_getsockopt(SO_ERROR) error: %s", strerror(errno));
         return RMT_ERROR;
     }
 
     if (err) {
         errno = err;
-        log_error("socket error: %s", strerror(errno));
+        log_error("ERROR: socket error: %s", strerror(errno));
         return RMT_ERROR;
     }
 
@@ -678,7 +678,7 @@ int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
     if ((ret = rmt_getaddrinfo(tc->host,_port,&hints,&servinfo)) != 0) {
          hints.ai_family = AF_INET6;
          if ((ret = rmt_getaddrinfo(tc->host,_port,&hints,&servinfo)) != 0) {
-            log_error("rmt_getaddrinfo error: %s", gai_strerror(ret));
+            log_error("ERROR: rmt_getaddrinfo error: %s", gai_strerror(ret));
             return RMT_ERROR;
         }
     }
@@ -691,7 +691,7 @@ addrretry:
         tc->sd = s;
         if (rmt_set_nonblocking(tc->sd) < 0)
         {
-            log_error("set nonblock on socket %d on addr '%s:%d' failed: %s", 
+            log_error("ERROR: set nonblock on socket %d on addr '%s:%d' failed: %s", 
                 s, tc->host, tc->port, strerror(errno));
             rmt_tcp_context_close_sd(tc);
             goto error;
@@ -701,7 +701,7 @@ addrretry:
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
             if ((ret = rmt_getaddrinfo(tc->source_addr, NULL, &hints, &bservinfo)) != 0) {
-                log_error("can't get %s addr: %s", tc->source_addr, gai_strerror(ret));
+                log_error("ERROR: can't get %s addr: %s", tc->source_addr, gai_strerror(ret));
                 rmt_tcp_context_close_sd(tc);
                 goto error;
             }
@@ -711,7 +711,7 @@ addrretry:
                 if (rmt_setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*) &n,
                                sizeof(n)) < 0) 
                 {
-                    log_error("set SO_REUSEADDR on socket %d on addr '%s:%d' failed: %s", 
+                    log_error("ERROR: set SO_REUSEADDR on socket %d on addr '%s:%d' failed: %s", 
                         tc->sd, tc->host, tc->port, strerror(errno));
                     rmt_tcp_context_close_sd(tc);
                     goto error;
@@ -728,7 +728,7 @@ addrretry:
             freeaddrinfo(bservinfo);
             
             if (!bound) {
-                log_error("can't bind socket: %s", strerror(errno));
+                log_error("ERROR: can't bind socket: %s", strerror(errno));
                 rmt_tcp_context_close_sd(tc);
                 goto error;
             }
@@ -742,7 +742,7 @@ addrretry:
                 /* This is ok. */
             } else if (errno == EADDRNOTAVAIL && reuseaddr) {
                 if (++reuses >= RMT_CONNECT_RETRIES) {
-                    log_error("retry too many times: %s", strerror(errno));
+                    log_error("ERROR: retry too many times: %s", strerror(errno));
                     rmt_tcp_context_close_sd(tc);
                     goto error;
                 } else {
@@ -756,7 +756,7 @@ addrretry:
         
         if (blocking && rmt_set_blocking(tc->sd) < 0)
         {
-            log_error("set block on socket %d on addr '%s:%d' failed: %s", 
+            log_error("ERROR: set block on socket %d on addr '%s:%d' failed: %s", 
                 tc->sd, tc->host, tc->port, strerror(errno));
             rmt_tcp_context_close_sd(tc);
             goto error;
@@ -764,7 +764,7 @@ addrretry:
 
         if (rmt_setsockopt(tc->sd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1)
         {
-            log_error("set TCP_NODELAY on socket %d on addr '%s:%d' failed: %s", 
+            log_error("ERROR: set TCP_NODELAY on socket %d on addr '%s:%d' failed: %s", 
                 tc->sd, tc->host, tc->port, strerror(errno));
             rmt_tcp_context_close_sd(tc);
             goto error;
@@ -776,7 +776,7 @@ addrretry:
     }
     
     if (p == NULL) {
-        log_error("can't create socket: %s", strerror(errno));
+        log_error("ERROR: can't create socket: %s", strerror(errno));
         goto error;
     }
 
@@ -874,7 +874,7 @@ rmt_sendv(int sd, struct array *sendv, size_t nsend)
             log_debug(LOG_VERB, "sendv on sd %d not ready - eagain", sd);
             return RMT_EAGAIN;
         } else {
-            log_error("sendv on sd %d failed: %s", sd, strerror(errno));
+            log_error("ERROR: sendv on sd %d failed: %s", sd, strerror(errno));
             return RMT_ERROR;
         }
     }

@@ -336,7 +336,7 @@ msg_append_full(struct msg *msg, const uint8_t *pos, size_t n)
         if(mbuf == NULL || mbuf_size(mbuf) == 0){
             mbuf = mbuf_get(mb);
             if(mbuf == NULL){
-                log_error("Mbuf get failed: out of memory");
+                log_error("ERROR: Mbuf get failed: out of memory");
                 return RMT_ENOMEM;
             }
 
@@ -519,6 +519,39 @@ msg_cmp_str(struct msg *msg, const uint8_t *str, uint32_t len)
     listReleaseIterator(iter);
     
     return 0;
+}
+
+int msg_check(struct msg *msg, int panic)
+{
+    struct mbuf *mbuf;
+    listIter *iter;
+    listNode *node;
+    uint32_t total_mbuf_len = 0;
+    
+    if (msg == NULL) {
+        return RMT_ERROR;
+    }
+
+    //check msg length
+    iter = listGetIterator(msg->data, AL_START_HEAD);
+    while ((node = listNext(iter)) != NULL) {
+        mbuf = listNodeValue(node);
+        total_mbuf_len += mbuf_storage_length(mbuf);
+    }
+    listReleaseIterator(iter);
+    
+    if (msg->mlen != total_mbuf_len) {
+        goto error;
+    }
+    
+    return RMT_OK;
+    
+error:
+    if (panic) {
+        rmt_stacktrace(1);
+        abort();
+    }
+    return RMT_ERROR;
 }
 
 #ifdef RMT_MEMORY_TEST
