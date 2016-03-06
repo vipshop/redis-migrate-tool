@@ -1092,7 +1092,7 @@ conf_parse_conf_pool(conf_pool *cp, dict *org)
         if(de != NULL){
             ret = opt->set(cp, opt, dictGetVal(de));
             if(ret != RMT_OK){
-                log_error("parse key %s in conf file error", key);
+                log_error("ERROR: parse key %s in conf file error", key);
                 sdsfree(key);
                 return RMT_ERROR;
             }
@@ -1123,7 +1123,7 @@ conf_parse_conf_common(rmt_conf *cf, dict *org)
         if(de != NULL){
             ret = opt->set(cf, opt, dictGetVal(de));
             if(ret != RMT_OK){
-                log_error("parse key %s in conf file error", key);
+                log_error("ERROR: parse key %s in conf file error", key);
                 sdsfree(key);
                 return RMT_ERROR;
             }
@@ -1157,7 +1157,7 @@ conf_parse(rmt_conf *cf)
     key = sdsnew(CONF_ORGANIZATION_NAME_SOURCE);
     de = dictFind(orgs, key);
     if(de == NULL){
-        log_error("Can not find %s organization in conf file %s", 
+        log_error("ERROR: Can not find %s organization in conf file %s", 
             CONF_ORGANIZATION_NAME_SOURCE, cf->fname);
         sdsfree(key);
         return RMT_ERROR;
@@ -1165,7 +1165,7 @@ conf_parse(rmt_conf *cf)
 
     org = dictGetVal(de);
     if(org == NULL){
-        log_error("Dict %s entry value is NULL", dictGetKey(de));
+        log_error("ERROR: Dict %s entry value is NULL", dictGetKey(de));
         sdsfree(key);
         return RMT_ERROR;
     }
@@ -1173,7 +1173,7 @@ conf_parse(rmt_conf *cf)
     cp = &cf->source_pool;
     ret = conf_parse_conf_pool(cp, org);
     if(ret != RMT_OK){
-        log_error("source pool conf parse error");
+        log_error("ERROR: source pool conf parse error");
         sdsfree(key);
         return RMT_ERROR;
     }
@@ -1182,7 +1182,7 @@ conf_parse(rmt_conf *cf)
     key = sdscpy(key, CONF_ORGANIZATION_NAME_TARGET);
     de = dictFind(orgs, key);
     if(de == NULL){
-        log_error("Can not find %s organization in conf file %s", 
+        log_error("ERROR: Can not find %s organization in conf file %s", 
             CONF_ORGANIZATION_NAME_TARGET, cf->fname);
         sdsfree(key);
         return RMT_ERROR;
@@ -1190,7 +1190,7 @@ conf_parse(rmt_conf *cf)
 
     org = dictGetVal(de);
     if(org == NULL){
-        log_error("Dict %s entry value is NULL", dictGetKey(de));
+        log_error("ERROR: Dict %s entry value is NULL", dictGetKey(de));
         sdsfree(key);
         return RMT_ERROR;
     }
@@ -1198,7 +1198,7 @@ conf_parse(rmt_conf *cf)
     cp = &cf->target_pool;
     ret = conf_parse_conf_pool(cp, org);
     if(ret != RMT_OK){
-        log_error("target pool conf parse error");
+        log_error("ERROR: target pool conf parse error");
         sdsfree(key);
         return RMT_ERROR;
     }
@@ -1207,7 +1207,7 @@ conf_parse(rmt_conf *cf)
     key = sdscpy(key, CONF_ORGANIZATION_NAME_COMMAN);
     de = dictFind(orgs, key);
     if(de == NULL){
-        log_error("Can not find %s organization in conf file %s", 
+        log_error("ERROR: Can not find %s organization in conf file %s", 
             CONF_ORGANIZATION_NAME_COMMAN, cf->fname);
         sdsfree(key);
         return RMT_ERROR;
@@ -1215,14 +1215,14 @@ conf_parse(rmt_conf *cf)
 
     org = dictGetVal(de);
     if(org == NULL){
-        log_error("Dict %s entry value is NULL", dictGetKey(de));
+        log_error("ERROR: Dict %s entry value is NULL", dictGetKey(de));
         sdsfree(key);
         return RMT_ERROR;
     }
 
     ret = conf_parse_conf_common(cf, org);
     if(ret != RMT_OK){
-        log_error("common conf parse error");
+        log_error("ERROR: common conf parse error");
         sdsfree(key);
         return RMT_ERROR;
     }    
@@ -1256,7 +1256,7 @@ conf_open(char *filename)
 
     fh = fopen(filename, "r");
     if (fh == NULL) {
-        log_error("conf: failed to open configuration '%s': %s", filename,
+        log_error("ERROR: failed to open configuration '%s': %s", filename,
                   strerror(errno));
         return NULL;
     }

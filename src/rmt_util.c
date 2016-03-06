@@ -763,6 +763,7 @@ ssize_t rmt_sync_write(int fd, const char *ptr, ssize_t size, long long timeout)
     long long start = rmt_msec_now();
     long long remaining = timeout;
 
+    if (size == 0) return 0;
     while(1) {
         long long wait = (remaining > RMT_SYNCIO_RESOLUTION) ?
                           remaining : RMT_SYNCIO_RESOLUTION;
@@ -772,7 +773,7 @@ ssize_t rmt_sync_write(int fd, const char *ptr, ssize_t size, long long timeout)
          * is actually writable. At worst we get EAGAIN. */
         nwritten = rmt_write(fd,ptr,size);
         if (nwritten == -1) {
-            if (errno != EAGAIN) return RMT_ERROR;
+            if (errno != EAGAIN) return -1;
         } else {
             ptr += nwritten;
             size -= nwritten;
@@ -788,6 +789,8 @@ ssize_t rmt_sync_write(int fd, const char *ptr, ssize_t size, long long timeout)
         }
         remaining = timeout - elapsed;
     }
+
+    return 0;
 }
 
 /* Read the specified amount of bytes from 'fd'. If all the bytes are read
@@ -827,6 +830,8 @@ ssize_t rmt_sync_read(int fd, char *ptr, ssize_t size, long long timeout) {
         }
         remaining = timeout - elapsed;
     }
+
+    return 0;
 }
 
 /* Read a line making sure that every char will not require more than 'timeout'

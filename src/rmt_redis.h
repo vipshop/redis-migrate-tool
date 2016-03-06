@@ -15,13 +15,25 @@
 #define REDIS_RDB_TYPE_FILE         1
 #define REDIS_RDB_TYPE_MEM          2
 
-/* Slave replication state - from the point of view of the slave. */
+/* Slave replication state. Used in rr.repl_state to remember
+ * what to do next. */
 #define REDIS_REPL_NONE 0 /* No active replication */
 #define REDIS_REPL_CONNECT 1 /* Must connect to master */
 #define REDIS_REPL_CONNECTING 2 /* Connecting to master */
+/* --- Handshake states, must be ordered --- */
 #define REDIS_REPL_RECEIVE_PONG 3 /* Wait for PING reply */
-#define REDIS_REPL_TRANSFER 4 /* Receiving .rdb from master */
-#define REDIS_REPL_CONNECTED 5 /* Connected to master */
+#define REDIS_REPL_SEND_AUTH 4 /* Send AUTH to master */
+#define REDIS_REPL_RECEIVE_AUTH 5 /* Wait for AUTH reply */
+#define REDIS_REPL_SEND_PORT 6 /* Send REPLCONF listening-port */
+#define REDIS_REPL_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
+#define REDIS_REPL_SEND_CAPA 8 /* Send REPLCONF capa */
+#define REDIS_REPL_RECEIVE_CAPA 9 /* Wait for REPLCONF reply */
+#define REDIS_REPL_SEND_PSYNC 10 /* Send PSYNC */
+#define REDIS_REPL_RECEIVE_PSYNC 11 /* Wait for PSYNC reply */
+/* --- End of handshake states --- */
+#define REDIS_REPL_TRANSFER 12 /* Receiving .rdb from master */
+#define REDIS_REPL_CONNECTED 13 /* Connected to master */
+
 
 /* Slave replication state - from the point of view of the master.
  * In SEND_BULK and ONLINE state the slave receives new updates
@@ -96,6 +108,7 @@ typedef struct redis_group{
     int kind;            	/* twemproxy, redis cluster or ... */
 
     int source;          	/* source group? */
+    char *password;      	/* redis password */
     
     mbuf_base *mb;
     struct mbuf *mbuf;

@@ -178,7 +178,6 @@ int redis_replication_init(redis_repl *rr)
     rr->usemark = 0;
 
     rr->flags = REDIS_SLAVE;
-
     rr->repl_state = REDIS_REPL_NONE;
     
     rr->reploff = 0;
@@ -206,7 +205,6 @@ void redis_replication_deinit(redis_repl *rr)
     rr->usemark = 0;
 
     rr->flags = REDIS_SLAVE;
-
     rr->repl_state = REDIS_REPL_NONE;
 
     rr->reploff = 0;
@@ -313,7 +311,7 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         {
             log_error("ERROR: Init redis replication failed");
             goto error;
-        }
+        }        
         
         rnode->cmd_data = mttlist_create();
         if(rnode->cmd_data == NULL)
@@ -517,7 +515,7 @@ void redis_node_deinit(redis_node *rnode)
         msg_free(rnode->msg_rcv);
         rnode->msg_rcv = NULL;
     }
-    
+
     rnode->read_data = NULL;
     rnode->write_data = NULL;
     rnode->state = 0;
@@ -548,6 +546,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
     rgroup->kind = GROUP_TYPE_UNKNOW;
 
     rgroup->source = 0;
+    rgroup->password = NULL;
     
     rgroup->mb = NULL;
     rgroup->mbuf = NULL;
@@ -940,6 +939,86 @@ static int rmt_redis_send_cmd(int fd, ...) {
     return RMT_OK;
 }
 
+static int redisRplicationReset(redis_node *srnode)
+{
+    int ret;
+    redis_repl *rr = srnode->rr;
+
+    rmt_memset(rr->eofmark, 0, REDIS_RUN_ID_SIZE);
+    rmt_memset(rr->lastbytes, 0, REDIS_RUN_ID_SIZE);
+    rr->usemark = 0;
+
+    rr->flags = REDIS_SLAVE;
+    
+    rr->reploff = 0;
+    rmt_memset(rr->replrunid,0,REDIS_RUN_ID_SIZE+1);
+    
+    rr->repl_master_initial_offset = -1;
+    rmt_memset(rr->repl_master_runid,0,REDIS_RUN_ID_SIZE+1);
+
+    rr->repl_transfer_size = -1;
+    rr->repl_transfer_read = 0;
+    rr->repl_transfer_last_fsync_off = 0;
+    rr->repl_transfer_lastio = 0;
+    
+    return RMT_OK;
+}
+
+/* Send a synchronous command to the master. Used to send AUTH and
+ * REPLCONF commands before starting the replication with SYNC.
+ *
+ * The command returns an sds string representing the result of the
+ * operation. On error the first byte is a "-".
+ */
+#define SYNC_CMD_READ (1<<0)
+#define SYNC_CMD_WRITE (1<<1)
+#define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
+static char *sendReplSyncCommand(int flags, int fd, ...) {
+
+    /* Create the command to send to the master, we use simple inline
+     * protocol for simplicity as currently we only send simple strings. */
+    if (flags & SYNC_CMD_WRITE) {
+        char *arg;
+        va_list ap;
+        sds cmd = sdsempty();
+        va_start(ap,fd);
+
+        while(1) {
+            arg = va_arg(ap, char*);
+            if (arg == NULL) break;
+
+            if (sdslen(cmd) != 0) cmd = sdscatlen(cmd," ",1);
+            cmd = sdscat(cmd,arg);
+        }
+        cmd = sdscatlen(cmd,"\r\n",2);
+
+        /* Transfer command to the server. */
+        if (rmt_sync_write(fd,cmd,sdslen(cmd),1000)
+            == -1)
+        {
+            sdsfree(cmd);
+            return sdscatprintf(sdsempty(),"-Writing to master: %s",
+                    strerror(errno));
+        }
+        sdsfree(cmd);
+        va_end(ap);
+    }
+
+    /* Read the reply from the server. */
+    if (flags & SYNC_CMD_READ) {
+        char buf[256];
+
+        if (rmt_sync_readline(fd,buf,sizeof(buf),1000)
+            == -1)
+        {
+            return sdscatprintf(sdsempty(),"-Reading from master: %s",
+                    strerror(errno));
+        }
+        return sdsnew(buf);
+    }
+    return NULL;
+}
+
 /* Try a partial resynchronization with the master if we are about to reconnect.
  * If there is no cached master structure, at least try to issue a
  * "PSYNC ? -1" command in order to trigger a full resync using the PSYNC
@@ -954,6 +1033,19 @@ static int rmt_redis_send_cmd(int fd, ...) {
  *    of successful partial resynchronization, the function will reuse
  *    'fd' as file descriptor of the server.master client structure.
  *
+ * The function is split in two halves: if read_reply is 0, the function
+ * writes the PSYNC command on the socket, and a new function call is
+ * needed, with read_reply set to 1, in order to read the reply of the
+ * command. This is useful in order to support non blocking operations, so
+ * that we write, return into the event loop, and read when there are data.
+ *
+ * When read_reply is 0 the function returns PSYNC_WRITE_ERR if there
+ * was a write error, or PSYNC_WAIT_REPLY to signal we need another call
+ * with read_reply set to 1. However even when read_reply is set to 1
+ * the function may return PSYNC_WAIT_REPLY again to signal there were
+ * insufficient data to read to complete its work. We should re-enter
+ * into the event loop and wait in such a case.
+ *
  * The function returns:
  *
  * PSYNC_CONTINUE: If the PSYNC command succeded and we can continue.
@@ -962,53 +1054,91 @@ static int rmt_redis_send_cmd(int fd, ...) {
  *                   offset is saved.
  * PSYNC_NOT_SUPPORTED: If the server does not understand PSYNC at all and
  *                      the caller should fall back to SYNC.
+ * PSYNC_WRITE_ERR: There was an error writing the command to the socket.
+ * PSYNC_WAIT_REPLY: Call again the function with read_reply set to 1.
+ *
+ * Notable side effects:
+ *
+ * 1) As a side effect of the function call the function removes the readable
+ *    event handler from "fd", unless the return value is PSYNC_WAIT_REPLY.
+ * 2) server.repl_master_initial_offset is set to the right value according
+ *    to the master reply. This will be used to populate the 'server.master'
+ *    structure replication offset.
  */
-
-#define RMT_PSYNC_CONTINUE 0
-#define RMT_PSYNC_FULLRESYNC 1
-#define RMT_PSYNC_NOT_SUPPORTED 2
-static int rmtTryPartialResynchronization(redis_node *srnode)
-{
+#define RMT_PSYNC_ERROR -1
+#define RMT_PSYNC_WRITE_ERROR 0
+#define RMT_PSYNC_WAIT_REPLY 1
+#define RMT_PSYNC_CONTINUE 2
+#define RMT_PSYNC_FULLRESYNC 3
+#define RMT_PSYNC_NOT_SUPPORTED 4
+static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
+    int ret;
+    tcp_context *tc = srnode->tc;
+    redis_repl *rr = srnode->rr;
+    read_thread_data *read_data = srnode->read_data;
     char *psync_runid;
     char psync_offset[32];
     sds reply;
-    tcp_context *tc = srnode->tc;
-    redis_repl *rr = srnode->rr;
 
-    /* Initially set repl_master_initial_offset to -1 to mark the current
-     * master run_id and offset as not valid. Later if we'll be able to do
-     * a FULL resync using the PSYNC command we'll set the offset at the
-     * right value, so that this information will be propagated to the
-     * client structure representing the master into server.master. */
-    rr->repl_master_initial_offset = -1;
+    /* Writing half */
+    if (!read_reply) {
+        /* Initially set repl_master_initial_offset to -1 to mark the current
+         * master run_id and offset as not valid. Later if we'll be able to do
+         * a FULL resync using the PSYNC command we'll set the offset at the
+         * right value, so that this information will be propagated to the
+         * client structure representing the master into server.master. */
+        rr->repl_master_initial_offset = -1;
 
-    //if (server.cached_master) {
-    if (rr->reploff) {
-        psync_runid = rr->replrunid;
-        rmt_snprintf(psync_offset,sizeof(psync_offset),"%lld", rr->reploff+1);
-        log_debug(LOG_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_runid, psync_offset);
-    } else {
-        log_debug(LOG_NOTICE,"Partial resynchronization not possible (no cached master)");
-        psync_runid = (char *)"?";
-        rmt_memcpy(psync_offset,"-1",3);
+        if (rr->reploff > 0) {
+            psync_runid = rr->replrunid;
+            rmt_snprintf(psync_offset,sizeof(psync_offset),"%lld", rr->reploff+1);
+            log_notice("Trying a partial resynchronization (request %s:%s).", psync_runid, psync_offset);
+        } else {
+            log_notice("Partial resynchronization not possible (no cached master)");
+            psync_runid = (char *)"?";
+            rmt_memcpy(psync_offset,"-1",3);
+        }
+
+        /* Issue the PSYNC command */
+        reply = sendReplSyncCommand(SYNC_CMD_WRITE,tc->sd,"PSYNC",psync_runid,psync_offset,NULL);
+        if (reply != NULL) {
+            log_warn("Warning: Unable to send PSYNC to master: %s",reply);
+            sdsfree(reply);
+            return RMT_PSYNC_WRITE_ERROR;
+        }
+        return RMT_PSYNC_WAIT_REPLY;
     }
 
-    /* Issue the PSYNC command */
-    reply = rmt_send_sync_cmd_read_line(tc->sd,"PSYNC",psync_runid,psync_offset,NULL);
+    /* Reading half */
+    reply = sendReplSyncCommand(SYNC_CMD_READ,tc->sd,NULL);
+    if (sdslen(reply) == 0) {
+        /* The master may send empty newlines after it receives PSYNC
+         * and before to reply, just to keep the connection alive. */
+        sdsfree(reply);
+        return RMT_PSYNC_WAIT_REPLY;
+    }
+
+    aeDeleteFileEvent(read_data->loop,tc->sd,AE_READABLE);
 
     if (!rmt_strncmp(reply,"+FULLRESYNC",11)) {
         char *runid = NULL, *offset = NULL;
 
+        /* Reset redis replication */
+        ret = redisRplicationReset(srnode);
+        if (ret != RMT_OK) {
+            return RMT_PSYNC_ERROR;
+        }
+
         /* FULL RESYNC, parse the reply in order to extract the run id
          * and the replication offset. */
-        runid = (char *)rmt_strchr(reply,reply+sdslen(reply),' ');
+        runid = rmt_strchr(reply, reply+sdslen(reply), ' ');
         if (runid) {
             runid++;
-            offset = (char *)rmt_strchr(runid,reply+sdslen(reply),' ');
+            offset = rmt_strchr(runid, reply+sdslen(reply),' ');
             if (offset) offset++;
         }
         if (!runid || !offset || (offset-runid-1) != REDIS_RUN_ID_SIZE) {
-            log_warn("Master replied with wrong +FULLRESYNC syntax.");
+            log_warn("Warning: Master replied with wrong +FULLRESYNC syntax.");
             /* This is an unexpected condition, actually the +FULLRESYNC
              * reply means that the master supports PSYNC, but the reply
              * format seems wrong. To stay safe we blank the master
@@ -1018,14 +1148,10 @@ static int rmtTryPartialResynchronization(redis_node *srnode)
             rmt_memcpy(rr->repl_master_runid, runid, offset-runid-1);
             rr->repl_master_runid[REDIS_RUN_ID_SIZE] = '\0';
             rr->repl_master_initial_offset = strtoll(offset,NULL,10);
-            log_debug(LOG_NOTICE,"Full resync from master: %s:%lld",
+            log_notice("Full resync from master: %s:%lld",
                 rr->repl_master_runid,
                 rr->repl_master_initial_offset);
         }
-
-        //we used 'srnode->reploff' instand cachemaster temporarily
-        //replicationDiscardCachedMaster();
-        rr->reploff = 0;
         
         sdsfree(reply);
         return RMT_PSYNC_FULLRESYNC;
@@ -1033,35 +1159,31 @@ static int rmtTryPartialResynchronization(redis_node *srnode)
 
     if (!rmt_strncmp(reply,"+CONTINUE",9)) {
         /* Partial resync was accepted, set the replication state accordingly */
-        log_debug(LOG_NOTICE,
-            "Successful partial resynchronization with master.");
+        log_notice("Successful partial resynchronization with master.");
         sdsfree(reply);
-
-        //we do not care about 'ResurrectCachedMaster' temporarily
         //replicationResurrectCachedMaster(fd);
-
         return RMT_PSYNC_CONTINUE;
     }
 
-    /* If we reach this point we receied either an error since the master does
+    /* If we reach this point we received either an error since the master does
      * not understand PSYNC, or an unexpected reply from the master.
      * Return PSYNC_NOT_SUPPORTED to the caller in both cases. */
 
     if (rmt_strncmp(reply,"-ERR",4)) {
         /* If it's not an error, log the unexpected event. */
-        log_warn("Unexpected reply to PSYNC from master: %s", reply);
+        log_warn("Warning: Unexpected reply to PSYNC from master: %s", reply);
     } else {
-        log_debug(LOG_NOTICE,
-            "Master does not support PSYNC or is in "
+        log_notice("Master does not support PSYNC or is in "
             "error state (reply: %s)", reply);
     }
-    
     sdsfree(reply);
-
-    //we used 'srnode->reploff' instand cachemaster temporarily
-    //replicationDiscardCachedMaster();
-    rr->reploff = 0;
-
+    
+    /* Reset redis replication */
+    ret = redisRplicationReset(srnode);
+    if (ret != RMT_OK) {
+        return RMT_PSYNC_ERROR;
+    }
+    
     return RMT_PSYNC_NOT_SUPPORTED;
 }
 
@@ -1325,11 +1447,6 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     
     log_debug(LOG_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
 
-    /*
-    //Insert the rdb_data leaved in the srnode->mbuf_in
-    rmtRedisReplDataInsert(srnode, NULL, 0, 
-        RMT_REDIS_REPL_DATA_TYPE_RDB, 1);
-        */
     mbuf = rdb->mbuf;
     if(mbuf != NULL && mbuf_length(mbuf) > 0)
     {
@@ -1419,7 +1536,8 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             rr->repl_transfer_lastio = rmt_usec_now();
             return;
         } else if (buf[0] != '$') {
-            log_warn("Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the host and port are right?", buf);
+            log_warn("Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the adrress %s are right?", 
+                buf, srnode->addr);
             goto error;
         }
 
@@ -1473,15 +1591,12 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
 
      /* Read bulk data */
     if (usemark) {
-        //readlen = sizeof(buf);
         readlen = mbuf_s;
     } else {
         left = rr->repl_transfer_size - rr->repl_transfer_read;
-        //readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
         readlen = (left < (signed)mbuf_s) ? left : (signed)mbuf_s;
     }
     
-    //nread = rmt_read(fd,buf,readlen);
     nread = rmt_read(fd,mbuf->last,readlen);
     if (nread <= 0) {
         log_warn("I/O error trying to sync with MASTER: %s",
@@ -1498,7 +1613,6 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     {
         rmtRedisRdbDataPost(srnode);
     }
-    //server.stat_net_input_bytes += nread;
 
     /* When a mark is used, we want to detect EOF asap in order to avoid
      * writing the EOF mark into the file... */
@@ -1522,21 +1636,15 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
 
     /* Delete the last 40 bytes from the file if we reached EOF. */
     if (usemark && eof_reached) {
-        if(rdb->type == REDIS_RDB_TYPE_FILE)
-        {
+        if (rdb->type == REDIS_RDB_TYPE_FILE) {
             if (ftruncate(rdb->fd,
-                rr->repl_transfer_read - REDIS_RUN_ID_SIZE) == -1)
-            {
+                rr->repl_transfer_read - REDIS_RUN_ID_SIZE) == -1) {
                 log_warn("error truncating the RDB file: %s", strerror(errno));
                 goto error;
             }
-        }
-        else if(rdb->type == REDIS_RDB_TYPE_MEM)
-        {
+        } else if(rdb->type == REDIS_RDB_TYPE_MEM) {
             rr->flags |= REDIS_RDB_USED_USEMARK;
-        }
-        else
-        {
+        } else {
             NOT_REACHED();
         }
     }
@@ -1586,115 +1694,183 @@ error:
     return;
 }
 
-
 static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask)
 {
 	int ret;
     redis_node *srnode = privdata;
-    struct read_thread_data *read_data = srnode->read_data;
+    read_thread_data *read_data = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
+    redis_group *srgroup = srnode->owner;
     int sockerr = 0;
     int psync_result;
-    char *err;
+    char *err = NULL;
 
     RMT_NOTUSED(el);
     RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
 
-    if(rmt_tcp_context_check_socket_error(tc) != RMT_OK)
-    {
+    ASSERT(el == read_data->loop);
+    ASSERT(fd == tc->sd);
+    ASSERT(srgroup->source == 1);
+
+    if (rmt_tcp_context_check_socket_error(tc) != RMT_OK) {
         sockerr = errno;
     }
 
-    if(sockerr)
-    {
+    if (sockerr) {
         log_error("ERROR: error condition on socket for SYNC: %s",
             strerror(sockerr));
         goto error;
     }
 
-    if(rr->repl_state == REDIS_REPL_CONNECTING)
-    {
+    if (rr->repl_state == REDIS_REPL_CONNECTING) {
         aeDeleteFileEvent(read_data->loop,fd,AE_WRITABLE);        
         rr->repl_state = REDIS_REPL_RECEIVE_PONG;
 
-        if (rmt_sync_write(tc->sd,"PING\r\n",6,100) == -1) {
-            log_error("ERROR: I/O error writing to MASTER: %s", strerror(errno));
-        }
-
+        /* Send the PING, don't check for errors at all, we have the timeout
+         * that will take care about this. */
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"PING",NULL);
+        if (err) goto write_error;
         return;
     }
 
-    if(rr->repl_state == REDIS_REPL_RECEIVE_PONG)
-    {
-        char buf[1024];
-        
-        /* Delete the readable event, we no longer need it now that there is
-             * the PING reply to read. */
-        aeDeleteFileEvent(read_data->loop,fd,AE_READABLE);
-
-        /* Read the reply with explicit timeout. */
-        buf[0] = '\0';
-        if (rmt_sync_readline(fd,buf,sizeof(buf), 1000) == -1)
-        {
-            log_error("ERROR: I/O error reading PING reply from master: %s",
-                strerror(errno));
-            goto error;
-        }
+    if (rr->repl_state == REDIS_REPL_RECEIVE_PONG) {
+        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
 
         /* We accept only two replies as valid, a positive +PONG reply
              * (we just check for "+") or an authentication error.
              * Note that older versions of Redis replied with "operation not
              * permitted" instead of using a proper error code, so we test
              * both. */
-        if (buf[0] != '+')
-        {
-            log_error("ERROR: error reply to PING from master: '%s'",buf);
+        if (err[0] != '+' &&
+            strncmp(err,"-NOAUTH",7) != 0 &&
+            strncmp(err,"-ERR operation not permitted",28) != 0) {
+            log_error("ERROR: error reply to PING from master: '%s'", err);
+            sdsfree(err);
             goto error;
         } else {
-            log_debug(LOG_NOTICE,
-                "Master replied to PING, replication can continue...");
+            log_notice("Master replied to PING, replication can continue...");
         }
+        sdsfree(err);
+        rr->repl_state = REDIS_REPL_SEND_AUTH;
+    }
+
+    /* AUTH with the master if required. */
+    if (rr->repl_state == REDIS_REPL_SEND_AUTH) {
+        if (srgroup->password) {
+            err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"AUTH",srgroup->password,NULL);
+            if (err) goto write_error;
+            rr->repl_state = REDIS_REPL_RECEIVE_AUTH;
+            return;
+        } else {
+            rr->repl_state = REDIS_REPL_SEND_PORT;
+        }
+    }
+
+    /* Receive AUTH reply. */
+    if (rr->repl_state == REDIS_REPL_RECEIVE_AUTH) {
+        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        if (err[0] == '-') {
+            log_error("Unable to AUTH to MASTER: %s",err);
+            sdsfree(err);
+            goto error;
+        }
+        sdsfree(err);
+        rr->repl_state = REDIS_REPL_SEND_PORT;
     }
 
     /* Set the slave port, so that Master's INFO command can list the
      * slave listening port correctly. */
-    {
+    if (rr->repl_state == REDIS_REPL_SEND_PORT) {
         int port = 0;
         sds port_str = NULL;
-        
-        ret = rmt_get_socket_local_ip_port(tc->sd, NULL, &port);
+
+        ret = rmt_get_socket_local_ip_port(fd, NULL, &port);
 	    if (ret < 0 || !rmt_valid_port(port)) {
-	        log_warn("Get sd %d addr failed.");
+	        log_warn("Warning: Get sd %d addr failed, used 12345 instead.", fd);
 			port_str = sdsfromlonglong(12345);
-	    }else{
+	    } else {
             port_str = sdsfromlonglong(port);
         }
-        
-        err = rmt_send_sync_cmd_read_line(fd,"REPLCONF", 
-            "listening-port", port_str, NULL);
-        
+
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
+                "listening-port",port_str, NULL);
         sdsfree(port_str);
-        /* Ignore the error if any, not all the Redis versions support
-             * REPLCONF listening-port. */
-        if (err[0] == '-') {
-            log_debug(LOG_NOTICE,"(Non critical) Master does not understand REPLCONF listening-port: %s", err);
-        }
-        
+        if (err) goto write_error;
         sdsfree(err);
+        rr->repl_state = REDIS_REPL_RECEIVE_PORT;
+        return;
     }
 
-     /* Try a partial resynchonization. If we don't have a cached master
+    /* Receive REPLCONF listening-port reply. */
+    if (rr->repl_state == REDIS_REPL_RECEIVE_PORT) {
+        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF listening-port. */
+        if (err[0] == '-') {
+            log_notice("(Non critical) Master does not understand "
+                "REPLCONF listening-port: %s", err);
+        }
+        sdsfree(err);
+        rr->repl_state = REDIS_REPL_SEND_CAPA;
+    }
+
+    /* Inform the master of our capabilities. While we currently send
+     * just one capability, it is possible to chain new capabilities here
+     * in the form of REPLCONF capa X capa Y capa Z ...
+     * The master will ignore capabilities it does not understand. */
+    if (rr->repl_state == REDIS_REPL_SEND_CAPA) {
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
+                "capa","eof",NULL);
+        if (err) goto write_error;
+        sdsfree(err);
+        rr->repl_state = REDIS_REPL_RECEIVE_CAPA;
+        return;
+    }
+
+    /* Receive CAPA reply. */
+    if (rr->repl_state == REDIS_REPL_RECEIVE_CAPA) {
+        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF capa. */
+        if (err[0] == '-') {
+            log_notice("(Non critical) Master does not understand "
+                "REPLCONF capa: %s", err);
+        }
+        sdsfree(err);
+        rr->repl_state = REDIS_REPL_SEND_PSYNC;
+    }
+
+    /* Try a partial resynchonization. If we don't have a cached master
      * slaveTryPartialResynchronization() will at least try to use PSYNC
      * to start a full resynchronization so that we get the master run id
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
-    psync_result = rmtTryPartialResynchronization(srnode);
+    if (rr->repl_state == REDIS_REPL_SEND_PSYNC) {
+        if (rmtTryPartialResynchronization(srnode,0) == RMT_PSYNC_WRITE_ERROR) {
+            err = sdsnew("Write error sending the PSYNC command.");
+            goto write_error;
+        }
+        rr->repl_state = REDIS_REPL_RECEIVE_PSYNC;
+        return;
+    }
+
+    /* If reached this point, we should be in REDIS_REPL_RECEIVE_PSYNC. */
+    if (rr->repl_state != REDIS_REPL_RECEIVE_PSYNC) {
+        log_error("Error: state machine error, "
+            "state should be RECEIVE_PSYNC but is %d",
+            rr->repl_state);
+        goto error;
+    }
+
+    psync_result = rmtTryPartialResynchronization(srnode,1);
+    if (psync_result == RMT_PSYNC_WAIT_REPLY) return; /* Try again later... */
+
     if (psync_result == RMT_PSYNC_CONTINUE) {
-        log_debug(LOG_NOTICE, "MASTER <-> SLAVE sync: Master accepted a Partial Resynchronization.");
+        log_notice("MASTER <-> SLAVE sync: Master accepted a Partial Resynchronization.");
         return;
     }
 
@@ -1702,7 +1878,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
      * and the server.repl_master_runid and repl_master_initial_offset are
      * already populated. */
     if (psync_result == RMT_PSYNC_NOT_SUPPORTED) {
-        log_debug(LOG_NOTICE, "Retrying with SYNC...");
+        log_notice("Retrying with SYNC...");
         if (rmt_sync_write(fd,"SYNC\r\n",6,1000) == -1) {
             log_warn("I/O error writing to MASTER: %s",
                 strerror(errno));
@@ -1712,8 +1888,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     /* Setup the non blocking download of the bulk file. */
     if (aeCreateFileEvent(read_data->loop,fd,AE_READABLE,rmtReceiveRdb,srnode)
-            == AE_ERR)
-    {
+            == AE_ERR) {
         log_warn("Can't create readable event for SYNC: %s (fd=%d)",
             strerror(errno),fd);
         goto error;
@@ -1744,7 +1919,13 @@ error:
     aeDeleteFileEvent(read_data->loop,fd,AE_READABLE|AE_WRITABLE);
     close(fd);
     rr->repl_state = REDIS_REPL_CONNECT;
-    
+    return;
+
+write_error:
+
+    log_error("Error: Sending command to master in replication handshake failed: %s", err);
+    sdsfree(err);
+    goto error;
 }
 
 
@@ -1755,8 +1936,8 @@ int rmtConnectRedisMaster(redis_node *srnode)
     sds *ip_port = NULL;
     int ip_port_count = 0;
     read_thread_data *read_data = srnode->read_data;
-    tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
+    tcp_context *tc = srnode->tc;
 
     ip_port = sdssplitlen(srnode->addr, (int)strlen(srnode->addr),
         IP_PORT_SEPARATOR, rmt_strlen(IP_PORT_SEPARATOR), &ip_port_count);
