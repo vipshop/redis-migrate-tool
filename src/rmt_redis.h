@@ -108,7 +108,7 @@ typedef struct redis_group{
     int kind;            	/* twemproxy, redis cluster or ... */
 
     int source;          	/* source group? */
-    char *password;      	/* redis password */
+    sds password;      	    /* redis password */
     
     mbuf_base *mb;
     long long msg_send_num; /* msg count sended to target group */

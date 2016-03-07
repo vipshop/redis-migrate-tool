@@ -667,6 +667,10 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
         if(cp->hash != CONF_UNSET_HASH){
             rgroup->key_hash = hash_algos[cp->hash];
         }
+
+        if (cp->redis_auth != CONF_UNSET_PTR) {
+            rgroup->password = sdsdup(cp->redis_auth);
+        }
     }
 
     return RMT_OK;
@@ -701,6 +705,11 @@ void redis_group_deinit(redis_group *rgroup)
     if(rgroup->mb != NULL){
         mbuf_base_destroy(rgroup->mb);
         rgroup->mb = NULL;
+    }
+
+    if (rgroup->password != NULL) {
+        sdsfree(rgroup->password);
+        rgroup->password = NULL;
     }
 
     rgroup->msg_send_num = 0;
@@ -1745,6 +1754,12 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
             sdsfree(err);
             goto error;
         } else {
+            if (!strncmp(err,"-NOAUTH",7) && srgroup->password == NULL) {
+                log_error("ERROR: source group redis password is required: '%s'", err);
+                sdsfree(err);
+                goto error;
+            }
+            
             log_notice("Master replied to PING, replication can continue...");
         }
         sdsfree(err);
