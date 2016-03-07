@@ -246,6 +246,9 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
     rnode->mbuf_in = NULL;
     rnode->cmd_data = NULL;
 
+    rnode->piece_data = NULL;
+    rnode->msg = NULL;
+
     rnode->send_data = NULL;
     rnode->sent_data = NULL;
     rnode->msg_rcv = NULL;
@@ -317,6 +320,13 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         if(rnode->cmd_data == NULL)
         {
             log_error("ERROR: Create cmd_data list failed: out of memory");
+            goto error;
+        }
+
+        rnode->piece_data = listCreate();
+        if(rnode->piece_data == NULL)
+        {
+            log_error("ERROR: Create piece data for source node failed: out of memory");
             goto error;
         }
 
@@ -516,6 +526,21 @@ void redis_node_deinit(redis_node *rnode)
         rnode->msg_rcv = NULL;
     }
 
+    if(rnode->piece_data != NULL){
+        while((mbuf = listPop(rnode->piece_data)) != NULL){
+            mbuf_put(mbuf);
+        }
+        
+        listRelease(rnode->piece_data);
+        rnode->piece_data = NULL;
+    }
+
+    if(rnode->msg != NULL){
+        msg_put(rnode->msg);
+        msg_free(rnode->msg);
+        rnode->msg = NULL;
+    }
+
     rnode->read_data = NULL;
     rnode->write_data = NULL;
     rnode->state = 0;
@@ -549,9 +574,6 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
     rgroup->password = NULL;
     
     rgroup->mb = NULL;
-    rgroup->mbuf = NULL;
-    rgroup->piece_data = NULL;
-    rgroup->msg = NULL;
     rgroup->msg_send_num = 0;
 
     rgroup->route = NULL;
@@ -578,13 +600,6 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
         if(rgroup->mb == NULL)
         {
             log_error("ERROR: Create mbuf_base failed");
-            goto error;
-        }
-
-        rgroup->piece_data = listCreate();
-        if(rgroup->piece_data == NULL)
-        {
-            log_error("ERROR: Create piece data for target group failed: out of memory");
             goto error;
         }
     }
@@ -683,31 +698,9 @@ void redis_group_deinit(redis_group *rgroup)
         rgroup->route = NULL;
     }
 
-    if(rgroup->mbuf != NULL){
-        mbuf_put(rgroup->mbuf);
-        rgroup->mbuf = NULL;
-    }
-
-    if(rgroup->piece_data != NULL){
-        struct mbuf *mbuf;
-        while((mbuf = listPop(rgroup->piece_data)) != NULL){
-            mbuf_put(mbuf);
-        }
-        
-        listRelease(rgroup->piece_data);
-        rgroup->piece_data = NULL;
-    }
-
     if(rgroup->mb != NULL){
         mbuf_base_destroy(rgroup->mb);
         rgroup->mb = NULL;
-    }
-    
-
-    if(rgroup->msg != NULL){
-        msg_put(rgroup->msg);
-        msg_free(rgroup->msg);
-        rgroup->msg = NULL;
     }
 
     rgroup->msg_send_num = 0;
@@ -3611,7 +3604,7 @@ error:
     r->state = state;
     errno = EINVAL;
 
-    log_hexdump(LOG_INFO, b->pos, mbuf_length(b), "parsed bad req %"PRIu64" "
+    log_hexdump(LOG_NOTICE, b->pos, mbuf_length(b), "parsed bad req %"PRIu64" "
                 "res %d type %d state %d", r->id, r->result, r->type,
                 r->state);
 }

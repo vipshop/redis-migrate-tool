@@ -414,6 +414,40 @@ struct mbuf *mbuf_list_pop(list *l)
     return mbuf;
 }
 
+void
+mbuf_list_dump_all(list *mbufs, int level)
+{
+    struct mbuf *mbuf;
+    listIter *iter;
+    listNode *node;
+    uint8_t *p, *q;
+    long int len;
+
+    if (log_loggable(level) == 0) {
+        return;
+    }
+
+    if(mbufs == NULL)
+    {
+        return;
+    }
+
+    loga("mbuf list length : %d", listLength(mbufs));
+
+    iter = listGetIterator(mbufs, AL_START_HEAD);
+    while((node = listNext(iter)) != NULL) {
+        mbuf = listNodeValue(node);
+        
+        p = mbuf->start;
+        q = mbuf->last;
+        len = q - p;
+
+        loga_hexdump(p, len, "mbuf [%p] with %ld bytes of data", p, len);
+    }
+
+    listReleaseIterator(iter);
+}
+
 #ifdef RMT_DEBUG_LOG
 void
 mbuf_list_dump(list *mbufs, int level)

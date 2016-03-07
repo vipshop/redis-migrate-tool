@@ -56,6 +56,7 @@ int mbuf_move(struct mbuf *mbuf_f, struct mbuf *mbuf_t, uint32_t n);
 int mbuf_list_push_head(list *l, struct mbuf *mbuf);
 int mbuf_list_push(list *l, struct mbuf *mbuf);
 struct mbuf *mbuf_list_pop(list *l);
+void mbuf_list_dump_all(list *mbufs, int level);
 void mbuf_list_dump(list *mbufs, int level);
 
 #ifdef RMT_MEMORY_TEST

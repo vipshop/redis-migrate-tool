@@ -215,8 +215,10 @@ void msg_dump(struct msg *msg, int level)
     }
 
     loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d "
-         "(err %d) kind %d", msg->id, msg->request, msg->mlen, 
-         msg->type, msg->err, msg->kind);
+         "(err %d) kind %d result %d mbuf_count %u", 
+         msg->id, msg->request, msg->mlen, 
+         msg->type, msg->err, msg->kind, 
+         msg->result, listLength(msg->data));
 
 
     iter = listGetIterator(msg->data, AL_START_HEAD);
@@ -254,8 +256,10 @@ void msg_dump_all(struct msg *msg, int level)
     }
 
     loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d "
-         "(err %d) kind %d", msg->id, msg->request, msg->mlen, 
-         msg->type, msg->err, msg->kind);
+         "(err %d) kind %d result %d mbuf_count %u", 
+         msg->id, msg->request, msg->mlen, 
+         msg->type, msg->err, msg->kind, 
+         msg->result, listLength(msg->data));
 
     iter = listGetIterator(msg->data, AL_START_HEAD);
     while((node = listNext(iter)) != NULL) {

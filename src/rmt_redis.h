@@ -111,9 +111,6 @@ typedef struct redis_group{
     char *password;      	/* redis password */
     
     mbuf_base *mb;
-    struct mbuf *mbuf;
-    list *piece_data;   	/* type: mbuf */
-    struct msg *msg;    	/* msg send to target group */
     long long msg_send_num; /* msg count sended to target group */
 
     struct array *route; 	/* route table for redis group */
@@ -142,6 +139,9 @@ typedef struct redis_node{
     redis_rdb *rdb;         	/* used to cache rdb from the source redis. */
     struct mbuf *mbuf_in;   	/* used to read cmd data from source redis. */
     mttlist *cmd_data;      	/* used to cache cmd data from source redis. type: mbuf */
+
+    list *piece_data;   	    /* used to cache the piece data for parse msg. type: mbuf */
+    struct msg *msg;    	    /* used to parse msg */
 
     list *send_data;        	/* used to cache the msg that will be sent. type: msg */
     list *sent_data;        	/* used to cache the msg that have be sent. type: msg */

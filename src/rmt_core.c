@@ -1274,10 +1274,10 @@ static int prepare_send_data(redis_node *srnode)
 
     listInit(&frag_msgl);
 
-    ASSERT(trgroup != NULL && trgroup->msg != NULL);
+    ASSERT(trgroup != NULL && srnode->msg != NULL);
     
-    msg = trgroup->msg;
-    trgroup->msg = NULL;
+    msg = srnode->msg;
+    srnode->msg = NULL;
     
     if(msg->noforward)
     {
@@ -1469,7 +1469,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     struct msg *msg;
     struct mbuf *mbuf_f, *mbuf_t;
     struct mbuf *mbuf, *nbuf;
-    size_t len;
+    uint32_t len;
     int data_type;
 
     RMT_NOTUSED(el);
@@ -1496,10 +1496,10 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     }
     
     while(1){
-        if(listLength(trgroup->piece_data) > 0){
+        if(listLength(srnode->piece_data) > 0){
             log_debug(LOG_VVERB,"trgroup->piece_data:");
-            mbuf_list_dump(trgroup->piece_data, LOG_VVERB);
-            mbuf_f = mbuf_list_pop(trgroup->piece_data);
+            mbuf_list_dump(srnode->piece_data, LOG_VVERB);
+            mbuf_f = mbuf_list_pop(srnode->piece_data);
         }else{
             if(rmt_read(fd,c,1) < 1){
                 //log_warn("read from notice sd failed");
@@ -1516,18 +1516,18 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
             break;
         }
     
-        if(trgroup->msg == NULL){
-            trgroup->msg = msg_get(srgroup->mb, 1, data_type);
-            if(trgroup->msg != NULL){
+        if(srnode->msg == NULL){
+            srnode->msg = msg_get(srgroup->mb, 1, data_type);
+            if(srnode->msg != NULL){
                 if(ctx->noreply){
-                    trgroup->msg->noreply = 1;
+                    srnode->msg->noreply = 1;
                 }else{
-                    trgroup->msg->noreply = 0;
+                    srnode->msg->noreply = 0;
                 }
             }
         }
 
-        msg = trgroup->msg;
+        msg = srnode->msg;
         if(msg == NULL){
             log_error("ERROR: Out of memory");
             return;
@@ -1536,8 +1536,8 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
         if(msg->result == MSG_PARSE_REPAIR){
             mbuf_t = mbuf_f;
 
-            if(listLength(trgroup->piece_data) > 0){
-                mbuf_f = mbuf_list_pop(trgroup->piece_data);
+            if(listLength(srnode->piece_data) > 0){
+                mbuf_f = mbuf_list_pop(srnode->piece_data);
             }else{
                 if(rmt_read(fd,c,1) < 1){
                     //log_warn("read from notice sd failed");
@@ -1548,7 +1548,8 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
             if(mbuf_f == NULL){
                 log_debug(LOG_DEBUG,"No more data to parse, wait for receive data.");
-                mbuf_list_push_head(trgroup->piece_data, mbuf_t);
+                ASSERT(listLength(srnode->piece_data) == 0);
+                mbuf_list_push_head(srnode->piece_data, mbuf_t);
                 break;
             }
 
@@ -1557,9 +1558,9 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
             len = MIN(mbuf_size(mbuf_t), mbuf_length(mbuf_f));
 
-            ret = mbuf_move(mbuf_f, mbuf_t, (uint32_t)len);
+            ret = mbuf_move(mbuf_f, mbuf_t, len);
             if(ret != RMT_OK){
-                log_error("ERROR: mbuf_f(%d) move data(%d) to mbuf_t(%d) failed",
+                log_error("ERROR: mbuf_f(%u) move data(%u) to mbuf_t(%u) failed",
                     mbuf_length(mbuf_f), len, mbuf_size(mbuf_t));
                 return;
             }
@@ -1567,7 +1568,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
             if(mbuf_empty(mbuf_f)){
                 mbuf_put(mbuf_f);
             }else{
-                mbuf_list_push(trgroup->piece_data, mbuf_f);
+                mbuf_list_push_head(srnode->piece_data, mbuf_f);
                 
                 log_hexdump(LOG_VVERB, mbuf_f->pos, mbuf_length(mbuf_f), 
                     "mbuf_f input mbuf_list");
@@ -1596,6 +1597,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 continue;
             }
 
+            ASSERT(msg->pos > mbuf->pos && msg->pos < mbuf->last);
             nbuf = msg_split(msg, msg->pos);
             if (nbuf == NULL) {
                 log_error("ERROR: split msg failed: out of memory");
@@ -1622,17 +1624,19 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 msg_type_string(msg->type));
             continue;
         }else{
-            msg_put(trgroup->msg);
-            msg_free(trgroup->msg);
-            trgroup->msg = NULL;
+            msg_dump_all(msg, LOG_NOTICE);
+            mbuf_list_dump_all(srnode->piece_data, LOG_NOTICE);
+            msg_put(srnode->msg);
+            msg_free(srnode->msg);
+            srnode->msg = NULL;
 
             //need to handle the error
             
             continue;
         }
 
-        ASSERT(listLength(trgroup->piece_data) <= 1);
-        mbuf_list_push_head(trgroup->piece_data, nbuf);
+        ASSERT(listLength(srnode->piece_data) <= 1);
+        mbuf_list_push_head(srnode->piece_data, nbuf);
     }
 }
 
