@@ -298,10 +298,9 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         }
 
         if(rgroup->kind == GROUP_TYPE_RDBFILE){
-            //strcpy(rnode->rdb->fname, addr);
             sdsrange(rnode->rdb->fname,0,0);
             rnode->rdb->fname = sdscat(rnode->rdb->fname, addr);
-            log_debug(LOG_NOTICE, "rdb->fname: %s", rnode->rdb->fname);
+            log_debug(LOG_DEBUG, "rdb->fname: %s", rnode->rdb->fname);
             rnode->rdb->deleted = 0;
         }
 
@@ -762,18 +761,6 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
 
     if(type == REDIS_RDB_TYPE_FILE)
     {
-        /*
-        rdb->fname = rmt_alloc(256*sizeof(rdb->fname));
-        if(rdb->fname == NULL)
-        {
-            log_error("ERROR: out of memory");
-            goto error;
-        }
-
-        snprintf(rdb->fname,256,
-            "node%s-%lld-%ld.rdb",addr==NULL?"unknow":addr,
-            rmt_usec_now(),(long int)getpid());
-        */
         rdb->fname = sdsempty();
         if (rdb->fname == NULL) {
             log_error("ERROR: out of memory");
@@ -833,7 +820,6 @@ void redis_rdb_deinit(redis_rdb *rdb)
     if(rdb->fname != NULL)
     {
         redis_delete_rdb_file(rdb, 0);
-        //rmt_free(rdb->fname);
         sdsfree(rdb->fname);
         rdb->fname = NULL;
     }
@@ -1941,7 +1927,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
             srnode->addr==NULL?"unknow":srnode->addr,
             rmt_usec_now(),
             (long int)getpid());
-        log_debug(LOG_NOTICE, "rdb->fname: %s", rdb->fname);
+        log_debug(LOG_DEBUG, "rdb->fname: %s", rdb->fname);
         
         rdb->fd = open(rdb->fname,O_CREAT|O_WRONLY|O_EXCL,0644);
         if(rdb->fd == -1){
@@ -4581,6 +4567,7 @@ static int redis_fragment_argx(redis_group *rgroup,
         sub_msg->type = r->type;
         sub_msg->frag_id = r->frag_id;
         sub_msg->frag_owner = r->frag_owner;
+        sub_msg->noreply = r->noreply;
 
         listAddNodeTail(frag_msgl, sub_msg);
         r->nfrag++;

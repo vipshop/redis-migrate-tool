@@ -1289,6 +1289,16 @@ static int prepare_send_data(redis_node *srnode)
     slots = array_n(trgroup->route);
     ASSERT(slots > 0);
 
+    //If this msg contain only one key, just send it.
+    if (array_n(msg->keys) == 1) {
+        kp = array_get(msg->keys, 0);
+        trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
+        if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
+            goto error;
+        }
+        return RMT_OK;
+    }
+
     ret = msg->fragment(trgroup, msg, slots, &frag_msgl);
     if (ret != RMT_OK) {
         log_error("ERROR: msg fragment failed");
@@ -1302,7 +1312,6 @@ static int prepare_send_data(redis_node *srnode)
         if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
             goto error;
         }
-
         return RMT_OK;
     }
 
