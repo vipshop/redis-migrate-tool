@@ -38,6 +38,7 @@ Config file has three parts: source, target and common.
  + redis cluster
  + rdb file
 + **servers:**: The list of redis address in the group. If type is twemproxy, this is same as the twemproxy config file. If type is rdb file, this is the file name.
++ **redis_auth**: Authenticate to the Redis server on connect. Now just for source redis group.
 + **hash**: The name of the hash function. Just for type is twemproxy. Possible values are:
  + one_at_a_time
  + md5
@@ -63,6 +64,7 @@ Config file has three parts: source, target and common.
 + **mbuf_size**: Mbuf size for request. Defaults to 512.
 + **noreply**: A boolean value that decide whether to check the target group replies. Defaults to false.
 + **source_safe**: A boolean value that protect the source group machines memory safe. If it is true, the tool can guarantee only one redis to generate rdb file at one time on the same machine for source group. In addition, 'source_safe: true' may use less threads then you set. Defaults to true.
++ **dir**: Work directory. Defaults to the current directory.
 
 
 For example, the configuration file shown below is to migrate data from single to twemproxy.

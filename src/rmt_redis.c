@@ -298,7 +298,10 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         }
 
         if(rgroup->kind == GROUP_TYPE_RDBFILE){
-            strcpy(rnode->rdb->fname, addr);
+            //strcpy(rnode->rdb->fname, addr);
+            sdsrange(rnode->rdb->fname,0,0);
+            rnode->rdb->fname = sdscat(rnode->rdb->fname, addr);
+            log_debug(LOG_NOTICE, "rdb->fname: %s", rnode->rdb->fname);
             rnode->rdb->deleted = 0;
         }
 
@@ -727,7 +730,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
     }
 
     if(type != REDIS_RDB_TYPE_FILE && 
-        type != REDIS_RDB_TYPE_FILE)
+        type != REDIS_RDB_TYPE_MEM)
     {
         return RMT_ERROR;
     }
@@ -759,6 +762,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
 
     if(type == REDIS_RDB_TYPE_FILE)
     {
+        /*
         rdb->fname = rmt_alloc(256*sizeof(rdb->fname));
         if(rdb->fname == NULL)
         {
@@ -769,6 +773,12 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
         snprintf(rdb->fname,256,
             "node%s-%lld-%ld.rdb",addr==NULL?"unknow":addr,
             rmt_usec_now(),(long int)getpid());
+        */
+        rdb->fname = sdsempty();
+        if (rdb->fname == NULL) {
+            log_error("ERROR: out of memory");
+            goto error;            
+        }
     }else if(REDIS_RDB_TYPE_MEM){
         rdb->data = mttlist_create();
         if(rdb->data == NULL){
@@ -823,7 +833,8 @@ void redis_rdb_deinit(redis_rdb *rdb)
     if(rdb->fname != NULL)
     {
         redis_delete_rdb_file(rdb, 0);
-        rmt_free(rdb->fname);
+        //rmt_free(rdb->fname);
+        sdsfree(rdb->fname);
         rdb->fname = NULL;
     }
 
@@ -1705,6 +1716,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
     redis_group *srgroup = srnode->owner;
+    rmtContext *ctx = srgroup->ctx;
     int sockerr = 0;
     int psync_result;
     char *err = NULL;
@@ -1910,10 +1922,31 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     //Prepare rdb file for recieve rdb data
     if(rdb->type == REDIS_RDB_TYPE_FILE && rdb->fd < 0){
+        if (rdb->fname == NULL) {
+            rdb->fname = sdsempty();
+            if (rdb->fname == NULL) {
+                log_error("Error: out of memory.");
+                goto error;
+            }
+        } else {
+            sdsrange(rdb->fname, 0, 0);
+        }
+        
+        if (ctx->dir != NULL) {
+            rdb->fname = sdscatsds(rdb->fname, ctx->dir);
+            rdb->fname = sdscat(rdb->fname, "/");
+        }
+        rdb->fname = sdscatfmt(rdb->fname, 
+            "node%s-%I-%i.rdb",
+            srnode->addr==NULL?"unknow":srnode->addr,
+            rmt_usec_now(),
+            (long int)getpid());
+        log_debug(LOG_NOTICE, "rdb->fname: %s", rdb->fname);
+        
         rdb->fd = open(rdb->fname,O_CREAT|O_WRONLY|O_EXCL,0644);
         if(rdb->fd == -1){
             log_error("ERROR: open rdb file %s failed: %s", 
-                strerror(errno));
+                rdb->fname, strerror(errno));
             goto error;
         }
     }
@@ -4983,6 +5016,7 @@ next:
         ASSERT(msg_owner->nfrag < sub_msg_count);
         msg_owner->frag_seq[msg_owner->nfrag] = msg;
         msg_owner->nfrag ++;
+        msg = NULL;
     }
 
     if(end < array_n(value)){
@@ -5005,6 +5039,10 @@ error:
     }
 
     if(msg_owner != NULL){
+        for (i = 0; i < msg_owner->nfrag; i ++) {
+            msg_put(msg_owner->frag_seq[i]);
+            msg_free(msg_owner->frag_seq[i]);
+        }
         msg_put(msg_owner);
         msg_free(msg_owner);
     }
@@ -5582,6 +5620,12 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     ASSERT(rdb->type == REDIS_RDB_TYPE_FILE);
 
+    key = NULL;
+    value = NULL;
+    msg = NULL;
+    mbuf_count = 0;
+    mbuf_count_max = mbuf_count_one_time;
+
     enum {
         RDB_FILE_PARSE_START,
         RDB_FILE_PARSE_AGAIN,
@@ -5621,13 +5665,6 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
         rdb->state = RDB_FILE_PARSE_AGAIN;
     }
-
-    key = NULL;
-    value = NULL;
-    msg = NULL;
-    mbuf_count = 0;
-    //mbuf_count_max = step*RMT_IOV_MAX;
-    mbuf_count_max = mbuf_count_one_time;
 
     while(1)
     {
@@ -5715,8 +5752,10 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         if(expiretime_type == RMT_TIME_SECOND){
             if(expiretime * 1000 < now){
                 sdsfree(key);
+                key = NULL;
                 if(value != NULL){
                     redis_value_destroy(value);
+                    value = NULL;
                 }
                 continue;
             }
@@ -5725,8 +5764,10 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         }else if(expiretime_type == RMT_TIME_MILLISECOND){
             if(expiretime < now){
                 sdsfree(key);
+                key = NULL;
                 if(value != NULL){
                     redis_value_destroy(value);
+                    value = NULL;
                 }
                 continue;
             }
@@ -5750,43 +5791,40 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         if(msg->frag_seq == NULL){
             mbuf_count += listLength(msg->data);
             ret = prepare_send_msg(srnode, msg, trnode);
-            if(ret != RMT_OK)
-            {
+            if (ret != RMT_OK) {
                 goto error;
             }
+            msg = NULL;
         }else{
             for(i = 0; i < msg->nfrag; i ++){
                 mbuf_count += listLength(msg->frag_seq[i]->data);
                 ret = prepare_send_msg(srnode, msg->frag_seq[i], trnode);
-                if(ret != RMT_OK)
-                {
+                if (ret != RMT_OK) {
                     goto error;
                 }
+                msg->frag_seq[i] = NULL;
             }
             
             msg_put(msg);
             msg_free(msg);
             msg = NULL;
         }
-        //msg_dump(msg, LOG_DEBUG);
 
-        if(expiretime_type != RMT_TIME_NONE)
-        {
+        if(expiretime_type != RMT_TIME_NONE){
             msg = redis_generate_msg_with_key_expire(ctx, mb, key, 
                 expiretime_type, expiretime_str);
-            if(msg == NULL)
-            {
+            if(msg == NULL){
                 log_error("ERROR: generate msg with key value failed");
                 goto error;
             }
 
             ret = prepare_send_msg(srnode, msg, trnode);
-            if(ret != RMT_OK)
-            {
+            if(ret != RMT_OK){
                 goto error;
             }
 
             mbuf_count += listLength(msg->data);
+            msg = NULL;
         }
         
         sdsfree(key);
@@ -5850,30 +5888,34 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 
 error:
 
-    if(rdb->fp != NULL)
-    {
+    if (rdb->fp != NULL) {
         fclose(rdb->fp);
         rdb->fp = NULL;
     }
 
-    if(key != NULL)
-    {
+    if (key != NULL) {
         sdsfree(key);
     }
 
-    if(value != NULL)
-    {
+    if (value != NULL) {
         redis_value_destroy(value);
     }
 
-    if(msg != NULL)
-    {
+    if (msg != NULL) {
+        if (msg->frag_seq!= NULL) {
+            for (i = 0; i < msg->nfrag; i ++) {
+                if (msg->frag_seq[i] != NULL) {
+                    msg_put(msg->frag_seq[i]);
+                    msg_free(msg->frag_seq[i]);
+                    msg->frag_seq[i] = NULL;
+                }
+            }
+        }
         msg_put(msg);
         msg_free(msg);
     }
 
-    if(expiretime_str != NULL)
-    {
+    if (expiretime_str != NULL) {
         sdsfree(expiretime_str);
     }
 
@@ -5929,13 +5971,6 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
             srnode->sk_event, AE_WRITABLE);
 
         if(srgroup->kind == GROUP_TYPE_RDBFILE){
-            /*
-            write_data->finish_write_nodes++;
-            if(write_data->finish_write_nodes >= 
-                write_data->nodes_count){
-                aeStop(write_data->loop);
-            }
-            */
             return;
         }
 

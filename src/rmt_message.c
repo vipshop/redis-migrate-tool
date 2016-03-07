@@ -525,7 +525,7 @@ msg_cmp_str(struct msg *msg, const uint8_t *str, uint32_t len)
     return 0;
 }
 
-int msg_check(struct msg *msg, int panic)
+int msg_check(rmtContext *ctx, struct msg *msg, int panic)
 {
     struct mbuf *mbuf;
     listIter *iter;
@@ -545,7 +545,17 @@ int msg_check(struct msg *msg, int panic)
     listReleaseIterator(iter);
     
     if (msg->mlen != total_mbuf_len) {
+        log_error("MSG CHECK Error: msg->mlen(%u) != total_mbuf_len(%u)", 
+            msg->mlen, total_mbuf_len);
         goto error;
+    }
+
+    if (msg->request == 1) {
+        if (msg->noreply != ctx->noreply) {
+            log_error("MSG CHECK Error: msg->noreply(%u) != ctx->noreply(%d)", 
+                msg->noreply, ctx->noreply);
+            goto error;
+        }
     }
     
     return RMT_OK;

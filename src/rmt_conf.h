@@ -59,6 +59,7 @@ typedef struct rmt_conf {
     int           noreply;
     int           rdb_diskless;
     int           source_safe;
+    sds           dir;
 }rmt_conf;
 
 typedef struct conf_value{

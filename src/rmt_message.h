@@ -3,6 +3,7 @@
 #define _RMT_MESSAGE_H_
 
 struct msg;
+struct rmtContext;
 
 typedef void (*msg_parse_t)(struct msg *);
 //typedef rstatus_t (*msg_add_auth_t)(struct context *ctx, struct conn *c_conn, struct conn *s_conn);
@@ -229,18 +230,18 @@ int msg_used_up(void);
 int msg_used_down(void);
 #endif
 
-int msg_check(struct msg *msg, int panic);
+int msg_check(struct rmtContext *ctx, struct msg *msg, int panic);
 
 #ifdef RMT_ASSERT_PANIC
-#define MSG_CHECK(_x) do {      \
-    msg_check(_x, 1);           \
+#define MSG_CHECK(_c, _x) do {      \
+    msg_check(_c, _x, 1);           \
 } while (0)
 #elif RMT_ASSERT_LOG
-#define MSG_CHECK(_x) do {      \
-    msg_check(_x, 0);           \
+#define MSG_CHECK(_c, _x) do {      \
+    msg_check(_c, _x, 0);           \
 } while (0)
 #else
-#define MSG_CHECK(_x)
+#define MSG_CHECK(_c, _x)
 #endif
 
 #endif

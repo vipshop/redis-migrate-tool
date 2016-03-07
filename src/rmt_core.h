@@ -183,6 +183,8 @@ typedef struct rmtContext {
 
     int step;
     int source_safe;
+
+    sds dir;
 }rmtContext;
 
 //for the read thread

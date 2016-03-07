@@ -65,7 +65,7 @@ typedef struct redis_rdb{
 
     struct mbuf *mbuf;
 
-    char *fname;    		/* rdb file name */
+    sds fname;    		    /* rdb file name */
     int fd;         		/* rdb file descriptor */
 
     FILE *fp;       		/* rdb file to read */

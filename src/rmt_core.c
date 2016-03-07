@@ -1213,7 +1213,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
         listLength(msg->data), trnode->addr);
 
-    MSG_CHECK(msg);
+    MSG_CHECK(ctx, msg);
 
     tc = trnode->tc;
 
@@ -1244,7 +1244,6 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
         }
     }
     
-    listAddNodeTail(trnode->send_data, msg);
     ret = aeCreateFileEvent(write_data->loop, tc->sd, 
         AE_WRITABLE, send_data_to_target, trnode);
     if(ret != AE_OK)
@@ -1254,6 +1253,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
         return RMT_ERROR;
     }
 
+    listAddNodeTail(trnode->send_data, msg);
     trgroup->msg_send_num ++;
     log_debug(LOG_DEBUG, "sended msgs: %lld", 
         trgroup->msg_send_num);
@@ -1299,8 +1299,7 @@ static int prepare_send_data(redis_node *srnode)
 
         kp = array_get(msg->keys, 0);
         trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
-        if(prepare_send_msg(srnode, msg, trnode) != RMT_OK)
-        {
+        if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
             goto error;
         }
 
@@ -1315,8 +1314,7 @@ static int prepare_send_data(redis_node *srnode)
     while ((sub_msg = listPop(&frag_msgl)) != NULL) {
         kp = array_get(sub_msg->keys, 0);
         trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
-        if(prepare_send_msg(srnode, sub_msg, trnode) != RMT_OK)
-        {
+        if(prepare_send_msg(srnode, sub_msg, trnode) != RMT_OK){
             msg_put(sub_msg);
             msg_free(sub_msg);
             goto error;
@@ -2023,8 +2021,8 @@ void redis_migrate(rmtContext *ctx, int type)
         }
     }
 
-    read_threads_count = array_n(read_datas);
-    write_threads_count = array_n(write_datas);
+    read_threads_count = read_datas?array_n(read_datas):0;
+    write_threads_count = write_datas?array_n(write_datas):0;
 
     log_notice("Total threads count in fact: %d", 
         read_threads_count+write_threads_count);
@@ -2033,7 +2031,7 @@ void redis_migrate(rmtContext *ctx, int type)
 
     //Check the read threads
     threads_hold_nodes_count = 0;
-    for (i = 0; i < array_n(read_datas); i ++) {
+    for (i = 0; i < read_threads_count; i ++) {
         read_data = array_get(read_datas, i);
         threads_hold_nodes_count += read_data->nodes_count;
         
@@ -2051,7 +2049,8 @@ void redis_migrate(rmtContext *ctx, int type)
             }
         }
     }
-    if (threads_hold_nodes_count != node_count) {
+    if (threads_hold_nodes_count != node_count && 
+        srgroup->kind != GROUP_TYPE_RDBFILE) {
         log_error("Error: read threads hold node count %s is wrong", 
             threads_hold_nodes_count);
         goto done;
@@ -2059,7 +2058,7 @@ void redis_migrate(rmtContext *ctx, int type)
 
     //Check the write threads
     threads_hold_nodes_count = 0;
-    for (i = 0; i < array_n(write_datas); i ++) {
+    for (i = 0; i < write_threads_count; i ++) {
         write_data = array_get(write_datas, i);
         threads_hold_nodes_count += write_data->nodes_count;
         

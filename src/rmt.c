@@ -52,6 +52,7 @@ init_context(struct instance *rmti)
 
     rmt_ctx->step = 0;
     rmt_ctx->source_safe = 0;
+    rmt_ctx->dir = NULL;
 
     commands = dictCreate(&commandTableDictType,NULL);
     if(commands == NULL)
@@ -142,6 +143,10 @@ init_context(struct instance *rmti)
     if(cf->source_safe != CONF_UNSET_NUM){
         rmt_ctx->source_safe = cf->source_safe;
     }
+
+    if (cf->dir != CONF_UNSET_PTR) {
+        rmt_ctx->dir = sdsdup(cf->dir);
+    }
     
     return rmt_ctx;
 }
@@ -170,6 +175,10 @@ void destroy_context(rmtContext *rmt_ctx)
 
     if(rmt_ctx->cf != NULL){
         conf_destroy(rmt_ctx->cf);
+    }
+
+    if (rmt_ctx->dir != NULL) {
+        sdsfree(rmt_ctx->dir);
     }
 
     rmt_free(rmt_ctx);

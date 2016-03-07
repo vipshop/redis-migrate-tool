@@ -105,6 +105,9 @@ static conf_option conf_common_options[] = {
     { (char*)"source_safe",
       conf_set_bool,
       offsetof(rmt_conf, source_safe) },
+    { (char*)"dir",
+      conf_set_string,
+      offsetof(rmt_conf, dir) },
     { NULL, NULL, 0 }
 };
 
@@ -684,6 +687,7 @@ static int conf_init(rmt_conf *cf)
     cf->noreply = CONF_UNSET_NUM;
     cf->rdb_diskless = CONF_UNSET_NUM;
     cf->source_safe = CONF_UNSET_NUM;
+    cf->dir = CONF_UNSET_PTR;
     
     return RMT_OK;
 }
@@ -712,6 +716,11 @@ static void conf_deinit(rmt_conf *cf)
     if(cf->listen != NULL){
         sdsfree(cf->listen);
         cf->listen = CONF_UNSET_PTR;
+    }
+
+    if(cf->dir != NULL){
+        sdsfree(cf->dir);
+        cf->dir = CONF_UNSET_PTR;
     }
     
     cf->maxmemory = CONF_UNSET_NUM;
@@ -769,6 +778,7 @@ conf_dump(rmt_conf *cf)
     log_debug(log_level, "  noreply: %d", cf->noreply);
     log_debug(log_level, "  rdb_diskless: %d", cf->rdb_diskless);
     log_debug(log_level, "  source_safe: %d", cf->source_safe);
+    log_debug(log_level, "  dir: %s", cf->dir);
     log_debug(log_level, "");
 
     source_pool = &cf->source_pool;
