@@ -118,11 +118,15 @@ void rmt_tcp_context_destroy(tcp_context *tc);
 
 int rmt_tcp_context_check_socket_error(tcp_context *tc);
 
+void rmt_tcp_context_close_sd(tcp_context *tc);
+
 int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
     const struct timeval *timeout, const char *source_addr);
 
 int rmt_tcp_context_connect_addr(tcp_context *tc, const char *addr, int len,
     const struct timeval *timeout, const char *source_addr);
+
+int rmt_tcp_context_reconnect(tcp_context *tc);
 
 ssize_t rmt_sendv(int sd, struct array *sendv, size_t nsend);
 

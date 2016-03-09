@@ -167,6 +167,9 @@ static dictType groupNodesDictType = {
     dictGroupNodeDestructor   /* val destructor */
 };
 
+static int rmtRedisSlaveAgainOnline(redis_node *srnode);
+static void rmtRedisSlaveOffline(redis_node *srnode);
+
 int redis_replication_init(redis_repl *rr)
 {
     if(rr == NULL){
@@ -227,10 +230,9 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         || rgroup == NULL){
         return RMT_ERROR;
     }
-
-    rnode->id = 0;
     
     rnode->ctx = NULL;
+    rnode->id = 0;
     rnode->owner = NULL;
     
     rnode->state = 0;
@@ -820,8 +822,6 @@ void redis_rdb_deinit(redis_rdb *rdb)
     if(rdb->fname != NULL)
     {
         redis_delete_rdb_file(rdb, 0);
-        sdsfree(rdb->fname);
-        rdb->fname = NULL;
     }
 
     if(rdb->mbuf != NULL)
@@ -1091,9 +1091,11 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
         if (rr->reploff > 0) {
             psync_runid = rr->replrunid;
             rmt_snprintf(psync_offset,sizeof(psync_offset),"%lld", rr->reploff+1);
-            log_notice("Trying a partial resynchronization (request %s:%s).", psync_runid, psync_offset);
+            log_notice("Trying a partial resynchronization with MASTER[%s] (request %s:%s).", 
+                srnode->addr, psync_runid, psync_offset);
         } else {
-            log_notice("Partial resynchronization not possible (no cached master)");
+            log_notice("Partial resynchronization for MASTER[%s] not possible (no cached master).", 
+                srnode->addr);
             psync_runid = (char *)"?";
             rmt_memcpy(psync_offset,"-1",3);
         }
@@ -1101,7 +1103,8 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
         /* Issue the PSYNC command */
         reply = sendReplSyncCommand(SYNC_CMD_WRITE,tc->sd,"PSYNC",psync_runid,psync_offset,NULL);
         if (reply != NULL) {
-            log_warn("Warning: Unable to send PSYNC to master: %s",reply);
+            log_error("ERROR: Unable to send PSYNC to master[%s]: %s", 
+                srnode->addr, reply);
             sdsfree(reply);
             return RMT_PSYNC_WRITE_ERROR;
         }
@@ -1137,7 +1140,8 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
             if (offset) offset++;
         }
         if (!runid || !offset || (offset-runid-1) != REDIS_RUN_ID_SIZE) {
-            log_warn("Warning: Master replied with wrong +FULLRESYNC syntax.");
+            log_warn("Warning: Master[%s] replied with wrong +FULLRESYNC syntax.", 
+                srnode->addr);
             /* This is an unexpected condition, actually the +FULLRESYNC
              * reply means that the master supports PSYNC, but the reply
              * format seems wrong. To stay safe we blank the master
@@ -1147,7 +1151,8 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
             rmt_memcpy(rr->repl_master_runid, runid, offset-runid-1);
             rr->repl_master_runid[REDIS_RUN_ID_SIZE] = '\0';
             rr->repl_master_initial_offset = strtoll(offset,NULL,10);
-            log_notice("Full resync from master: %s:%lld",
+            log_notice("Full resync from MASTER[%s]: %s:%lld",
+                srnode->addr, 
                 rr->repl_master_runid,
                 rr->repl_master_initial_offset);
         }
@@ -1158,9 +1163,10 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
 
     if (!rmt_strncmp(reply,"+CONTINUE",9)) {
         /* Partial resync was accepted, set the replication state accordingly */
-        log_notice("Successful partial resynchronization with master.");
+        log_notice("Successful partial resynchronization with MASTER[%s].", 
+            srnode->addr);
         sdsfree(reply);
-        //replicationResurrectCachedMaster(fd);
+        rmtRedisSlaveAgainOnline(srnode);
         return RMT_PSYNC_CONTINUE;
     }
 
@@ -1170,10 +1176,11 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
 
     if (rmt_strncmp(reply,"-ERR",4)) {
         /* If it's not an error, log the unexpected event. */
-        log_warn("Warning: Unexpected reply to PSYNC from master: %s", reply);
+        log_warn("Warning: Unexpected reply to PSYNC from MASTER[%s]: %s", 
+            srnode->addr, reply);
     } else {
-        log_notice("Master does not support PSYNC or is in "
-            "error state (reply: %s)", reply);
+        log_notice("Master[%s] does not support PSYNC or is in "
+            "error state (reply: %s)", srnode->addr, reply);
     }
     sdsfree(reply);
     
@@ -1281,39 +1288,6 @@ static int rmtRedisReplDataInsert(redis_node *srnode,
     return RMT_OK;
 }
 
-static int redisSlaveReplCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
-{
-    int ret;
-    redis_node *srnode = clientData;
-    tcp_context *tc = srnode->tc;
-    redis_repl *rr = srnode->rr;
-    char buf[64];
-    int len;
-    RMT_NOTUSED(eventLoop);
-    RMT_NOTUSED(id);
-    RMT_NOTUSED(clientData);
-
-    log_debug(LOG_VERB, "redisSlaveReplCron() %lld", id);
-
-    
-    log_debug(LOG_VERB, "reploff: %lld", rr->reploff);
-
-    len = rmt_lltoa(buf, 64, rr->reploff);
-    log_debug(LOG_VERB, "len: %d buf: %s", len, buf);
-
-    ret = rmt_redis_send_cmd(tc->sd, "replconf", "ack", buf, NULL);
-    if(ret != RMT_OK){
-        log_error("ERROR: Send replconf ack to node[%s] failed", srnode->addr);
-    }
-
-#ifdef RMT_MEMORY_TEST
-    log_debug(LOG_ALERT, "mbuf used: %lld; msg used: %lld", 
-        mbuf_used_count(), msg_used_count());
-#endif
-
-    return 1000;
-}
-
 static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *privdata, int mask) 
 {
     int ret;
@@ -1322,16 +1296,21 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
     redis_group *srgroup = srnode->owner;
     read_thread_data *read_data = srnode->read_data;
     redis_repl *rr = srnode->rr;
+    tcp_context *tc = srnode->tc;
     
     RMT_NOTUSED(el);
+    RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
+    
+    ASSERT(el == read_data->loop);
+    ASSERT(fd == tc->sd);
 
     if(srnode->mbuf_in == NULL){
         srnode->mbuf_in = mbuf_get(srgroup->mb);
         if(srnode->mbuf_in == NULL){
             log_error("ERROR: Mbuf get failed: Out of memory");
-            goto done;
+            return;
         }
     }else if(mbuf_size(srnode->mbuf_in) == 0){
         mttlist_push(srnode->cmd_data, srnode->mbuf_in);
@@ -1341,26 +1320,27 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
         srnode->mbuf_in = mbuf_get(srgroup->mb);
         if(srnode->mbuf_in == NULL){
             log_error("ERROR: Mbuf get failed: Out of memory");
-            goto done;
+            return;
         }
     }
     
     nread = rmt_read(fd,srnode->mbuf_in->last,
         mbuf_size(srnode->mbuf_in));
     if (nread < 0) {
-        if(errno == EAGAIN){
-            log_warn("I/O error read query from MASTER: %s",strerror(errno));
+        if (errno == EAGAIN) {
+            log_warn("Warn: I/O error read query from MASTER[%s]: %s", 
+                srnode->addr, strerror(errno));
             nread = 0;
-        }else{
-            log_warn("I/O error read query from MASTER: %s",strerror(errno));
-            aeDeleteFileEvent(read_data->loop, fd, AE_READABLE);
-            goto done;
+        } else {
+            log_error("ERROR: I/O error read query from MASTER[%s]: %s", 
+                srnode->addr, strerror(errno));
+            goto error;
         }
-    }else if(nread == 0){
-        log_warn("I/O error read query from MASTER: lost connect with master");
-        aeDeleteFileEvent(read_data->loop, fd, AE_READABLE);
-        goto done;
-    }else{
+    } else if(nread == 0) {
+        log_error("ERROR: I/O error read query from MASTER[%s]: lost connection", 
+            srnode->addr);
+        goto error;
+    } else {
         rr->reploff += nread;
         srnode->mbuf_in->last += nread;
         mttlist_push(srnode->cmd_data, srnode->mbuf_in);
@@ -1370,9 +1350,9 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
 
     return;
     
-done:
-
-    aeDeleteFileEvent(read_data->loop,fd,AE_READABLE|AE_WRITABLE);
+error:
+    
+    rmtRedisSlaveOffline(srnode);
 }
 
 static void rmtRedisRdbDataPost(redis_node *srnode)
@@ -1381,16 +1361,14 @@ static void rmtRedisRdbDataPost(redis_node *srnode)
     struct mbuf *mbuf;
     uint32_t len, write_len;
     
-    if(rdb == NULL)
-    {
+    if (rdb == NULL) {
         return;
     }
 
     mbuf = rdb->mbuf;
     ASSERT(mbuf != NULL);
 
-    if(rdb->type == REDIS_RDB_TYPE_FILE)
-    {
+    if (rdb->type == REDIS_RDB_TYPE_FILE) {
         len = mbuf_length(mbuf);
         ASSERT(len > 0);
 
@@ -1407,18 +1385,14 @@ static void rmtRedisRdbDataPost(redis_node *srnode)
         }
 
         mbuf->pos = mbuf->last = mbuf->start;
-    }
-    else if(rdb->type == REDIS_RDB_TYPE_MEM)
-    {
+    } else if(rdb->type == REDIS_RDB_TYPE_MEM) {
         ASSERT(rdb->mb != NULL);
         ASSERT(rdb->data != NULL);
         
         mttlist_push(rdb->data, mbuf);
         rdb->mbuf = NULL;
         notice_write_thread(srnode);
-    }
-    else
-    {
+    } else {
         NOT_REACHED();
     }
     
@@ -1439,31 +1413,26 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     
     /* If master offset is set to -1, this master is old and is not
      * PSYNC capable, so we flag it accordingly. */
-    if (rr->reploff == -1)
-    {
+    if (rr->reploff == -1) {
         rr->flags |= REDIS_PRE_PSYNC;
     }
     
     log_debug(LOG_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
 
     mbuf = rdb->mbuf;
-    if(mbuf != NULL && mbuf_length(mbuf) > 0)
-    {
+    if (mbuf != NULL && mbuf_length(mbuf) > 0) {
         rmtRedisRdbDataPost(srnode);
     }
     
-    if(rdb->mbuf != NULL)
-    {
-        if(rdb->mb != NULL)
-        {
+    if (rdb->mbuf != NULL) {
+        if(rdb->mb != NULL) {
             mbuf_put(rdb->mbuf);
         }
 
         rdb->mbuf = NULL;
     }
 
-    if(rdb->type == REDIS_RDB_TYPE_FILE)
-    {
+    if (rdb->type == REDIS_RDB_TYPE_FILE) {
         close(rdb->fd);
         rdb->fd = -1;
         log_notice("rdb file %s write complete", 
@@ -1475,18 +1444,70 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     rmt_set_tcpnodelay(tc->sd);
 
     if (aeCreateFileEvent(read_data->loop,tc->sd,AE_READABLE,
-        rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR)
-    {
+        rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR) {
         log_error("ERROR: can't create the rmtRedisSlaveReadQueryFromMaster file event.");
-        return RMT_ERROR;
-    }
-    
-    if(aeCreateTimeEvent(read_data->loop, 1, redisSlaveReplCron, srnode, NULL) == AE_ERR) {
-        log_error("ERROR: can't create the redisSlaveReplCron time event.");
         return RMT_ERROR;
     }
 
     return RMT_OK;
+}
+
+static void rmtRedisSlaveOffline(redis_node *srnode)
+{
+    tcp_context *tc = srnode->tc;
+    read_thread_data *rdata = srnode->read_data;
+    redis_repl *rr = srnode->rr;
+    
+    aeDeleteFileEvent(rdata->loop,tc->sd,AE_READABLE|AE_WRITABLE);
+    rmt_tcp_context_close_sd(tc);
+    rr->repl_state = REDIS_REPL_CONNECT;
+}
+
+static int rmtRedisSlaveAgainOnline(redis_node *srnode)
+{
+    read_thread_data *read_data = srnode->read_data;
+    tcp_context *tc = srnode->tc;
+    redis_repl *rr = srnode->rr;
+
+    rr->repl_state = REDIS_REPL_CONNECTED;
+    
+    log_notice("Again online for node[%s] replication.", 
+        srnode->addr);
+    
+    rmt_set_nonblocking(tc->sd);
+    rmt_set_tcpnodelay(tc->sd);
+
+    if (aeCreateFileEvent(read_data->loop,tc->sd,AE_READABLE,
+        rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR) {
+        log_error("ERROR: can't create the node[%s] rmtRedisSlaveReadQueryFromMaster file event.", 
+            srnode->addr);
+        rmtRedisSlaveOffline(srnode);
+        return RMT_ERROR;
+    }
+
+    return RMT_OK;
+}
+
+static void rmtReceiveRdbAbort(redis_node *srnode)
+{
+    read_thread_data *rdata = srnode->read_data;
+    tcp_context *tc = srnode->tc;
+    redis_rdb *rdb = srnode->rdb;
+    redis_repl *rr = srnode->rr;
+
+    if (rdb->mbuf != NULL) {
+        if (rdb->mb != NULL) {
+            mbuf_put(rdb->mbuf);
+        }
+
+        rdb->mbuf = NULL;
+    }
+    
+    aeDeleteFileEvent(rdata->loop, tc->sd, AE_READABLE);
+    rmt_tcp_context_close_sd(tc);
+    redis_delete_rdb_file(rdb, 1);
+    redisRplicationReset(srnode);
+    rr->repl_state = REDIS_REPL_CONNECT;
 }
 
 static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask) 
@@ -1506,8 +1527,12 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     uint32_t mbuf_s;
     
     RMT_NOTUSED(el);
+    RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
+    
+    ASSERT(el == read_data->loop);
+    ASSERT(fd == srnode->tc->sd);
 
     /* Static vars used to hold the EOF mark, and the last bytes received
      * form the server: when they match, we reached the end of the transfer. */
@@ -1519,14 +1544,14 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
      * from the master reply. */
     if (rr->repl_transfer_size == -1) {
         if (rmt_sync_readline(fd,buf,1024,1000) == -1) {
-            log_warn("I/O error reading bulk count from MASTER: %s",
-                strerror(errno));
+            log_error("Error: I/O error reading bulk count from MASTER[%s]: %s",
+                srnode->addr, strerror(errno));
             goto error;
         }
 
         if (buf[0] == '-') {
-            log_warn("MASTER aborted replication with an error: %s",
-                buf+1);
+            log_error("Error: MASTER[%s] aborted replication with an error: %s",
+                srnode->addr, buf+1);
             goto error;
         } else if (buf[0] == '\0') {
             /* At this stage just a newline works as a PING in order to take
@@ -1535,7 +1560,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             rr->repl_transfer_lastio = rmt_usec_now();
             return;
         } else if (buf[0] != '$') {
-            log_warn("Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the adrress %s are right?", 
+            log_error("Error: Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the adrress %s are right?", 
                 buf, srnode->addr);
             goto error;
         }
@@ -1557,31 +1582,26 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             /* Set any repl_transfer_size to avoid entering this code path
              * at the next call. */
             rr->repl_transfer_size = 0;
-            log_debug(LOG_NOTICE,
-                "MASTER <-> SLAVE sync: receiving streamed RDB from master");
+            log_notice("MASTER <-> SLAVE sync: receiving streamed RDB from master[%s]", 
+                srnode->addr);
         } else {
             usemark = 0;
             rr->repl_transfer_size = strtol(buf+1,NULL,10);
-            log_debug(LOG_NOTICE,
-                "MASTER <-> SLAVE sync: receiving %lld bytes from master",
-                (long long) rr->repl_transfer_size);
+            log_notice("MASTER <-> SLAVE sync: receiving %lld bytes from master[%s]",
+                (long long) rr->repl_transfer_size, srnode->addr);
         }
         return;
     }
 
     mbuf = rdb->mbuf;
-    if(mbuf == NULL)
-    {
+    if (mbuf == NULL) {
         rdb->mbuf = mbuf_get(rdb->mb);
         mbuf = rdb->mbuf;
-        if(mbuf == NULL)
-        {
+        if (mbuf == NULL) {
             log_error("ERROR: mbuf_get NULL: out of memory");
             return;
         }
-    }
-    else if(mbuf_size(mbuf) == 0)
-    {
+    } else if(mbuf_size(mbuf) == 0) {
         rmtRedisRdbDataPost(srnode);
     }
 
@@ -1598,18 +1618,16 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     
     nread = rmt_read(fd,mbuf->last,readlen);
     if (nread <= 0) {
-        log_warn("I/O error trying to sync with MASTER: %s",
-            (nread == -1) ? strerror(errno) : "connection lost");
-        aeDeleteFileEvent(read_data->loop, fd, AE_READABLE);
-        //replicationAbortSyncTransfer();
+        log_error("Error: I/O error trying to sync with MASTER[%s]: %s",
+            srnode->addr, (nread == -1) ? strerror(errno) : "connection lost");
+        rmtReceiveRdbAbort(srnode);
         return;
     }
 
     ASSERT((ssize_t)mbuf_size >= nread);
 
     mbuf->last += nread;
-    if(mbuf_size(mbuf) == 0)
-    {
+    if (mbuf_size(mbuf) == 0) {
         rmtRedisRdbDataPost(srnode);
     }
 
@@ -1638,7 +1656,8 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         if (rdb->type == REDIS_RDB_TYPE_FILE) {
             if (ftruncate(rdb->fd,
                 rr->repl_transfer_read - REDIS_RUN_ID_SIZE) == -1) {
-                log_warn("error truncating the RDB file: %s", strerror(errno));
+                log_error("Error: truncating the RDB file %s failed: %s", 
+                    rdb->fname, strerror(errno));
                 goto error;
             }
         } else if(rdb->type == REDIS_RDB_TYPE_MEM) {
@@ -1648,8 +1667,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         }
     }
 
-
-    if(rdb->type == REDIS_RDB_TYPE_FILE){
+    if (rdb->type == REDIS_RDB_TYPE_FILE) {
         /* Sync data on disk from time to time, otherwise at the end of the transfer
          * we may suffer a big delay as the memory buffers are copied into the
          * actual disk. */
@@ -1679,8 +1697,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         srnode->timestamp = now;
 
         ret = rmtRedisSlavePrepareOnline(srnode);
-        if(ret != RMT_OK)
-        {
+        if (ret != RMT_OK) {
             goto error;
         }
     }
@@ -1689,7 +1706,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
 
 error:
 
-    
+    rmtReceiveRdbAbort(srnode);
     return;
 }
 
@@ -1711,7 +1728,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
-
+    
     ASSERT(el == read_data->loop);
     ASSERT(fd == tc->sd);
     ASSERT(srgroup->source == 1);
@@ -1721,12 +1738,13 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     }
 
     if (sockerr) {
-        log_error("ERROR: error condition on socket for SYNC: %s",
-            strerror(sockerr));
+        log_error("ERROR: error condition on socket %d for SYNC: %s",
+            tc->sd, strerror(sockerr));
         goto error;
     }
 
     if (rr->repl_state == REDIS_REPL_CONNECTING) {
+        log_notice("Start connecting to MASTER[%s].", srnode->addr);
         aeDeleteFileEvent(read_data->loop,fd,AE_WRITABLE);        
         rr->repl_state = REDIS_REPL_RECEIVE_PONG;
 
@@ -1748,7 +1766,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         if (err[0] != '+' &&
             strncmp(err,"-NOAUTH",7) != 0 &&
             strncmp(err,"-ERR operation not permitted",28) != 0) {
-            log_error("ERROR: error reply to PING from master: '%s'", err);
+            log_error("ERROR: error reply to PING from MASTER[%s]: '%s'", 
+                srnode->addr, err);
             sdsfree(err);
             goto error;
         } else {
@@ -1758,7 +1777,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
                 goto error;
             }
             
-            log_notice("Master replied to PING, replication can continue...");
+            log_notice("Master[%s] replied to PING, replication can continue...", 
+                srnode->addr);
         }
         sdsfree(err);
         rr->repl_state = REDIS_REPL_SEND_AUTH;
@@ -1780,7 +1800,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     if (rr->repl_state == REDIS_REPL_RECEIVE_AUTH) {
         err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
         if (err[0] == '-') {
-            log_error("Unable to AUTH to MASTER: %s",err);
+            log_error("ERROR: Unable to AUTH to MASTER[%s]: %s", 
+                srnode->addr, err);
             sdsfree(err);
             goto error;
         }
@@ -1817,8 +1838,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
-            log_notice("(Non critical) Master does not understand "
-                "REPLCONF listening-port: %s", err);
+            log_info("(Non critical) Master[%s] does not understand "
+                "REPLCONF listening-port: %s", srnode->addr, err);
         }
         sdsfree(err);
         rr->repl_state = REDIS_REPL_SEND_CAPA;
@@ -1843,8 +1864,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
-            log_notice("(Non critical) Master does not understand "
-                "REPLCONF capa: %s", err);
+            log_info("(Non critical) Master[%s] does not understand "
+                "REPLCONF capa: %s", srnode->addr, err);
         }
         sdsfree(err);
         rr->repl_state = REDIS_REPL_SEND_PSYNC;
@@ -1876,7 +1897,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     if (psync_result == RMT_PSYNC_WAIT_REPLY) return; /* Try again later... */
 
     if (psync_result == RMT_PSYNC_CONTINUE) {
-        log_notice("MASTER <-> SLAVE sync: Master accepted a Partial Resynchronization.");
+        log_notice("MASTER <-> SLAVE sync: Master[%s] accepted a Partial Resynchronization.", 
+            srnode->addr);
         return;
     }
 
@@ -1884,10 +1906,10 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
      * and the server.repl_master_runid and repl_master_initial_offset are
      * already populated. */
     if (psync_result == RMT_PSYNC_NOT_SUPPORTED) {
-        log_notice("Retrying with SYNC...");
+        log_notice("Retrying with SYNC to MASTER[%s]...", srnode->addr);
         if (rmt_sync_write(fd,"SYNC\r\n",6,1000) == -1) {
-            log_warn("I/O error writing to MASTER: %s",
-                strerror(errno));
+            log_error("ERROR: I/O error writing to MASTER[%s]: %s",
+                srnode->addr, strerror(errno));
             goto error;
         }
     }
@@ -1895,8 +1917,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     /* Setup the non blocking download of the bulk file. */
     if (aeCreateFileEvent(read_data->loop,fd,AE_READABLE,rmtReceiveRdb,srnode)
             == AE_ERR) {
-        log_warn("Can't create readable event for SYNC: %s (fd=%d)",
-            strerror(errno),fd);
+        log_error("ERROR: Can't create readable event for node[%s] SYNC: %s (fd=%d)",
+            srnode->addr, strerror(errno), fd);
         goto error;
     }
 
@@ -1943,18 +1965,16 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     
 error:
 
-    aeDeleteFileEvent(read_data->loop,fd,AE_READABLE|AE_WRITABLE);
-    close(fd);
-    rr->repl_state = REDIS_REPL_CONNECT;
+    rmtRedisSlaveOffline(srnode);
     return;
 
 write_error:
 
-    log_error("Error: Sending command to master in replication handshake failed: %s", err);
+    log_error("Error: Sending command to master[%s] in replication handshake failed: %s", 
+        srnode->addr, err);
     sdsfree(err);
     goto error;
 }
-
 
 int rmtConnectRedisMaster(redis_node *srnode) 
 {
@@ -1968,23 +1988,20 @@ int rmtConnectRedisMaster(redis_node *srnode)
 
     ip_port = sdssplitlen(srnode->addr, (int)strlen(srnode->addr),
         IP_PORT_SEPARATOR, rmt_strlen(IP_PORT_SEPARATOR), &ip_port_count);
-    if(ip_port == NULL || ip_port_count != 2)
-    {
+    if (ip_port == NULL || ip_port_count != 2) {
         log_error("ERROR: ip port parsed error");
         goto error;
     }
 
     port = rmt_atoi(ip_port[1], sdslen(ip_port[1]));
-    if(rmt_valid_port(port) == 0)
-    {
+    if (rmt_valid_port(port) == 0) {
         log_error("ERROR: port is invalid");
         goto error;
     }
     
     tc->flags &= ~RMT_BLOCK;
     ret = rmt_tcp_context_connect(tc, ip_port[0], port, NULL, NULL);
-    if(ret != RMT_OK)
-    {
+    if (ret != RMT_OK) {
         log_error("ERROR: can't context to redis master");
         goto error;
     }
@@ -1994,9 +2011,9 @@ int rmtConnectRedisMaster(redis_node *srnode)
     ip_port_count = 0;
     
     if (aeCreateFileEvent(read_data->loop, tc->sd, 
-        AE_READABLE|AE_WRITABLE,rmtSyncRedisMaster,srnode) == AE_ERR)
-    {
-        log_error("ERROR: can't create readable event for SYNC");
+        AE_READABLE|AE_WRITABLE,rmtSyncRedisMaster,srnode) == AE_ERR) {
+        log_error("ERROR: can't create readable event for %s rmtSyncRedisMaster.", 
+                srnode->addr);
         goto error;
     }
 
@@ -2006,14 +2023,52 @@ int rmtConnectRedisMaster(redis_node *srnode)
 
 error:
 
-    if(ip_port != NULL)
-    {
+    if (ip_port != NULL) {
         sdsfreesplitres(ip_port, ip_port_count);
     }
     
     return RMT_ERROR;
 }
 
+void redisSlaveReplCorn(redis_node *srnode)
+{
+    int ret;
+    read_thread_data *rdata = srnode->read_data;
+    tcp_context *tc = srnode->tc;
+    redis_repl *rr = srnode->rr;
+
+    log_debug(LOG_VERB, "redisSlaveReplCorn()");
+
+    if (rr->repl_state == REDIS_REPL_CONNECT) {
+        ASSERT(tc->sd < 0);
+        ASSERT((tc->flags & RMT_CONNECTED) == 0);
+        
+        ret = rmt_tcp_context_reconnect(tc);
+        if (ret != RMT_OK) {
+            log_error("ERROR: reconnect to %s failed", srnode->addr);
+            return;
+        }
+        
+        if (aeCreateFileEvent(rdata->loop, tc->sd, 
+            AE_READABLE|AE_WRITABLE,rmtSyncRedisMaster,srnode) == AE_ERR) {
+            log_error("ERROR: can't create readable event for %s rmtSyncRedisMaster.", 
+                srnode->addr);
+            return;
+        }
+
+        rr->repl_state = REDIS_REPL_CONNECTING;
+    } else if (rr->repl_state == REDIS_REPL_CONNECTED) {
+        char buf[64];
+        int len;
+        len = rmt_lltoa(buf, 64, rr->reploff);
+        log_debug(LOG_VERB, "len: %d buf: %s", len, buf);
+
+        ret = rmt_redis_send_cmd(tc->sd, "replconf", "ack", buf, NULL);
+        if(ret != RMT_OK){
+            log_error("ERROR: Send replconf ack to node[%s] failed", srnode->addr);
+        }
+    }
+}
 
 
 /* ========================== Redis Protocol ============================ */
@@ -5564,17 +5619,35 @@ static int redis_object_type_get_by_rdbtype(int dbtype)
 
 void redis_delete_rdb_file(redis_rdb *rdb, int always)
 {
-    if(rdb == NULL || rdb->fname == NULL){
+    if (rdb == NULL) {
         return;
     }
 
-    if(always){
-        unlink(rdb->fname);
-        return;
+    if (always) {
+        goto del;
     }
 
-    if(rdb->deleted){
+    if (rdb->deleted) {
+        goto del;
+    }
+
+    return;
+
+del:
+    if (rdb->fd > 0) {
+        close(rdb->fd);
+        rdb->fd = -1;
+    }
+
+    if (rdb->fp != NULL) {
+        fclose(rdb->fp);
+        rdb->fp = NULL;
+    }
+
+    if (rdb->fname != NULL) {
         unlink(rdb->fname);
+        sdsfree(rdb->fname);
+        rdb->fname = NULL;
     }
 }
 
@@ -5628,7 +5701,6 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
                 rdb->fname, strerror(errno));
             goto error;
         }
-
 
         if(redis_rdb_file_read(rdb, buf, 9) != RMT_OK){
             log_error("ERROR: redis rdb file %s read first 9 char error", 
@@ -5859,8 +5931,11 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     redis_delete_rdb_file(rdb, 0);
 
     //notice the read thread to begin replication for the next redis_node
-    if(srnode->next != NULL){
+    if (srnode->next != NULL) {
         rmt_write(srnode->next->notice_read_pipe[1], " ", 1);
+    } else {
+        log_notice("All nodes' rdb file parsed finished for this write thread(%lu).",
+            write_data->thread_id);
     }
 
     return RMT_OK;
@@ -5946,18 +6021,24 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
     redis_rdb *rdb = srnode->rdb;
     rmtContext *ctx = srnode->ctx;
 
+    RMT_NOTUSED(el);
+    RMT_NOTUSED(fd);
+    RMT_NOTUSED(privdata);
+    RMT_NOTUSED(mask);
+
     ASSERT(fd == srnode->sk_event);
+    ASSERT(el == write_data->loop);
 
     ret = redis_parse_rdb_file(srnode, ctx->step);
     if(ret == RMT_AGAIN){
         return;
-    }else if(ret == RMT_OK){
+    } else if(ret == RMT_OK) {
         redis_group *srgroup = srnode->owner;
         
         aeDeleteFileEvent(write_data->loop, 
             srnode->sk_event, AE_WRITABLE);
 
-        if(srgroup->kind == GROUP_TYPE_RDBFILE){
+        if (srgroup->kind == GROUP_TYPE_RDBFILE) {
             return;
         }
 

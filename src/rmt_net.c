@@ -500,10 +500,11 @@ rmt_get_socket_local_ip_port(int sd, char **ip, int *port)
     return RMT_OK;
 }
 
-static void rmt_tcp_context_close_sd(tcp_context *tc) {
+void rmt_tcp_context_close_sd(tcp_context *tc) {
     if (tc && tc->sd >= 0) {
         close(tc->sd);
         tc->sd = -1;
+        tc->flags &= ~RMT_CONNECTED;
     }
 }
 
@@ -621,8 +622,136 @@ int rmt_tcp_context_check_socket_error(tcp_context *tc) {
 
     return RMT_OK;
 }
+static int _rmt_tcp_context_connect(tcp_context *tc) {
+    int ret;
+    int s, n;
+    char _port[6];  /* strlen("65535"); */
+    struct addrinfo hints, *servinfo, *bservinfo, *p, *b;
+    int blocking = (tc->flags & RMT_BLOCK);
+    int reuseaddr = (tc->flags & RMT_REUSEADDR);
+    int reuses = 0;
+    int yes = 1;
 
-int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
+    rmt_snprintf(_port, 6, "%d", tc->port);
+    rmt_memset(&hints,0,sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    /* Try with IPv6 if no IPv4 address was found. We do it in this order since
+     * in a Redis client you can't afford to test if you have IPv6 connectivity
+     * as this would add latency to every connect. Otherwise a more sensible
+     * route could be: Use IPv6 if both addresses are available and there is IPv6
+     * connectivity. */
+    if ((ret = rmt_getaddrinfo(tc->host,_port,&hints,&servinfo)) != 0) {
+         hints.ai_family = AF_INET6;
+         if ((ret = rmt_getaddrinfo(tc->host,_port,&hints,&servinfo)) != 0) {
+            log_error("ERROR: rmt_getaddrinfo error: %s", gai_strerror(ret));
+            return RMT_ERROR;
+        }
+    }
+    
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+addrretry:
+        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
+            continue;
+
+        tc->sd = s;
+        if (rmt_set_nonblocking(tc->sd) < 0) {
+            log_error("ERROR: set nonblock on socket %d on addr '%s:%d' failed: %s", 
+                s, tc->host, tc->port, strerror(errno));
+            rmt_tcp_context_close_sd(tc);
+            goto error;
+        }
+        
+        if (tc->source_addr) {
+            int bound = 0;
+            /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
+            if ((ret = rmt_getaddrinfo(tc->source_addr, NULL, &hints, &bservinfo)) != 0) {
+                log_error("ERROR: can't get %s addr: %s", tc->source_addr, gai_strerror(ret));
+                rmt_tcp_context_close_sd(tc);
+                goto error;
+            }
+
+            if (reuseaddr) {
+                n = 1;
+                if (rmt_setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (char*) &n,
+                               sizeof(n)) < 0) {
+                    log_error("ERROR: set SO_REUSEADDR on socket %d on addr '%s:%d' failed: %s", 
+                        tc->sd, tc->host, tc->port, strerror(errno));
+                    rmt_tcp_context_close_sd(tc);
+                    goto error;
+                }
+            }
+
+            for (b = bservinfo; b != NULL; b = b->ai_next) {
+                if (bind(s,b->ai_addr,b->ai_addrlen) != -1) {
+                    bound = 1;
+                    break;
+                }
+            }
+            
+            freeaddrinfo(bservinfo);
+            
+            if (!bound) {
+                log_error("ERROR: can't bind socket: %s", strerror(errno));
+                rmt_tcp_context_close_sd(tc);
+                goto error;
+            }
+        }
+        
+        if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
+            if (errno == EHOSTUNREACH) {
+                rmt_tcp_context_close_sd(tc);
+                continue;
+            } else if (errno == EINPROGRESS && !blocking) {
+                /* This is ok. */
+            } else if (errno == EADDRNOTAVAIL && reuseaddr) {
+                if (++reuses >= RMT_CONNECT_RETRIES) {
+                    log_error("ERROR: retry too many times: %s", strerror(errno));
+                    rmt_tcp_context_close_sd(tc);
+                    goto error;
+                } else {
+                    goto addrretry;
+                }
+            } else {
+                if (rmt_tcp_context_wait_ready(tc,tc->timeout) != RMT_OK)
+                    goto error;
+            }
+        }
+        
+        if (blocking && rmt_set_blocking(tc->sd) < 0) {
+            log_error("ERROR: set block on socket %d on addr '%s:%d' failed: %s", 
+                tc->sd, tc->host, tc->port, strerror(errno));
+            rmt_tcp_context_close_sd(tc);
+            goto error;
+        }
+
+        if (rmt_setsockopt(tc->sd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1) {
+            log_error("ERROR: set TCP_NODELAY on socket %d on addr '%s:%d' failed: %s", 
+                tc->sd, tc->host, tc->port, strerror(errno));
+            rmt_tcp_context_close_sd(tc);
+            goto error;
+        }
+        
+        tc->flags |= RMT_CONNECTED;
+        ret = RMT_OK;
+        goto end;
+    }
+    
+    if (p == NULL) {
+        log_error("ERROR: can't create socket: %s", strerror(errno));
+        goto error;
+    }
+
+error:
+    ret = RMT_ERROR;
+    tc->flags &= ~RMT_CONNECTED;
+end:
+    freeaddrinfo(servinfo);
+    return ret;  // Need to return RMT_OK if alright
+}
+
+int rmt_tcp_context_connect_old(tcp_context *tc, const char *host, int port,
                                    const struct timeval *timeout,
                                    const char *source_addr) {
     int ret;
@@ -787,6 +916,43 @@ end:
     return ret;  // Need to return RMT_OK if alright
 }
 
+int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
+                                   const struct timeval *timeout,
+                                   const char *source_addr) {
+    tc->port = port;
+
+    if(tc->host != NULL)
+    {
+        free(tc->host);
+        tc->host = NULL;
+    }
+
+    tc->host = rmt_strdup(host);
+
+    if (timeout) {
+        if (tc->timeout == NULL) {
+            tc->timeout = rmt_alloc(sizeof(struct timeval));
+        }
+
+        rmt_memcpy(tc->timeout, timeout, sizeof(struct timeval));
+    } else {
+        if (tc->timeout)
+            rmt_free(tc->timeout);
+        tc->timeout = NULL;
+    }
+
+    if (tc->source_addr != NULL) {
+        free(tc->source_addr);
+        tc->source_addr = NULL;
+    }
+
+    if (source_addr) {
+        tc->source_addr = rmt_strdup(source_addr);
+    }
+
+    return _rmt_tcp_context_connect(tc);
+}
+
 int rmt_tcp_context_connect_addr(tcp_context *tc, const char *addr, int len,
     const struct timeval *timeout, const char *source_addr)
 {
@@ -831,6 +997,14 @@ error:
     }
     
     return RMT_ERROR;
+}
+
+int rmt_tcp_context_reconnect(tcp_context *tc) {
+    if (tc == NULL) {
+        return RMT_ERROR;
+    }
+    rmt_tcp_context_close_sd(tc);
+    return _rmt_tcp_context_connect(tc);
 }
 
 ssize_t

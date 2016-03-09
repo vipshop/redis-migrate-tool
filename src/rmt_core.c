@@ -4,6 +4,11 @@
 #include <time.h>
 #include <signal.h>
 
+static void recv_data_from_target(aeEventLoop *el, int fd, void *privdata, int mask);
+static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mask);
+static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
+static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
+
 static int read_thread_data_init(read_thread_data *rdata)
 {
 	if(rdata == NULL)
@@ -30,6 +35,11 @@ static int read_thread_data_init(read_thread_data *rdata)
 		log_error("ERROR: create node list failed: out of memory");
 		return RMT_ENOMEM;
 	}
+
+    if (aeCreateTimeEvent(rdata->loop, 1, readThreadCron, rdata, NULL) == AE_ERR) {
+        log_error("ERROR: can't create the readThreadCron time event.");
+        return RMT_ERROR;
+    }
 	
 	return RMT_OK;
 }
@@ -60,8 +70,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 {
     int ret;
     
-	if(wdata == NULL)
-	{
+	if (wdata == NULL) {
 		return RMT_ERROR;
 	}
 
@@ -75,44 +84,45 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->notice_pipe[1] = -1;
 
 	wdata->loop = aeCreateEventLoop(1000);
-    if(wdata->loop == NULL)
-    {
+    if (wdata->loop == NULL) {
     	log_error("ERROR:  create event loop failed");
         goto error;
     }
 
     wdata->nodes = listCreate();
-	if(wdata->nodes == NULL){
+	if (wdata->nodes == NULL) {
 		log_error("ERROR: Create node list failed: out of memory");
 		goto error;
 	}
 
     wdata->trgroup = target_group_create(ctx);
-    if(wdata->trgroup == NULL){
+    if (wdata->trgroup == NULL) {
         log_error("ERROR: Target group create failed");
         goto error;
     }
 
     ret = pipe(wdata->notice_pipe);
-    if(ret < 0)
-    {
+    if (ret < 0) {
         log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
         goto error;
     }
 
     ret = rmt_set_nonblocking(wdata->notice_pipe[0]);
-    if(ret < 0)
-    {
+    if (ret < 0) {
         log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
             wdata->notice_pipe[0], strerror(errno));
         goto error;
     }
 
     ret = rmt_set_nonblocking(wdata->notice_pipe[1]);
-    if(ret < 0)
-    {
+    if (ret < 0){
         log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
             wdata->notice_pipe[1], strerror(errno));
+        goto error;
+    }
+
+    if (aeCreateTimeEvent(wdata->loop, 1, writeThreadCron, wdata, NULL) == AE_ERR) {
+        log_error("ERROR: can't create the writeThreadCron time event.");
         goto error;
     }
 	
@@ -121,7 +131,6 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 error:
 
     write_thread_data_deinit(wdata);
-
     return RMT_ERROR;
 }
 
@@ -160,6 +169,87 @@ static void write_thread_data_deinit(write_thread_data *wdata)
         close(wdata->notice_pipe[1]);
         wdata->notice_pipe[1] = -1;
     }
+}
+
+static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
+{
+    read_thread_data *rdata = clientData;
+    listIter *li;
+    listNode *ln;
+    redis_node *srnode;
+
+    RMT_NOTUSED(eventLoop);
+    RMT_NOTUSED(id);
+    RMT_NOTUSED(clientData);
+
+    log_debug(LOG_VERB, "writeThreadCron() %lld", id);
+
+    //Check error connection
+    li = listGetIterator(rdata->nodes_data, AL_START_HEAD);
+    while ((ln = listNext(li)) != NULL) {
+        srnode = listNodeValue(ln);
+        redisSlaveReplCorn(srnode);
+    }
+    listReleaseIterator(li);
+    
+    return 1000;
+}
+
+static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
+{
+    int ret;
+    write_thread_data *wdata = clientData;
+    redis_group *trgroup = wdata->trgroup;
+    rmtContext *ctx = trgroup->ctx;
+    dictIterator *di;
+    dictEntry *de;
+    redis_node *trnode;
+    tcp_context *tc;
+
+    RMT_NOTUSED(eventLoop);
+    RMT_NOTUSED(id);
+    RMT_NOTUSED(clientData);
+
+    log_debug(LOG_VERB, "writeThreadCron() %lld", id);
+
+    //Check error connection
+    di = dictGetSafeIterator(trgroup->nodes);
+    while ((de = dictNext(di)) != NULL) {
+        trnode = dictGetVal(de);
+        tc = trnode->tc;
+        if (tc->sd <= 0 && listLength(trnode->send_data) > 0) {
+            ret = rmt_tcp_context_reconnect(tc);
+            if (ret != RMT_OK) {
+                log_error("ERROR: reconnect to %s failed", trnode->addr);
+                continue;
+            }
+
+            if (ctx->noreply == 0) {
+                ret = aeCreateFileEvent(wdata->loop, tc->sd, 
+                    AE_READABLE, recv_data_from_target, trnode);
+                if (ret != AE_OK) {
+                    log_error("ERROR: send_data event create %ld failed: %s",
+                        wdata->thread_id, strerror(errno));
+                    continue;
+                }
+
+                log_debug(LOG_NOTICE, "node[%s] create read event for thread %ld", 
+                    trnode->addr, wdata->thread_id);
+            }
+
+            ret = aeCreateFileEvent(wdata->loop, tc->sd, 
+                AE_WRITABLE, send_data_to_target, trnode);
+            if(ret != AE_OK)
+            {
+                log_error("ERROR: send_data event create %ld failed: %s",
+                    wdata->thread_id, strerror(errno));
+                continue;
+            }
+        }
+    }
+    dictReleaseIterator(di);
+    
+    return 1000;
 }
 
 static void *event_run(void *args)
@@ -945,8 +1035,31 @@ static void *write_thread_run(void *args)
     return 0;
 }
 
+static void target_node_close(redis_node *trnode)
+{
+    tcp_context *tc = trnode->tc;
+    struct msg *msg;
+
+    ASSERT(trnode->sent_data != NULL);
+
+    rmt_tcp_context_close_sd(tc);
+
+    while ((msg = listPop(trnode->sent_data)) != NULL) {
+        ASSERT(msg->request && msg->sent);
+        msg_put(msg);
+        msg_free(msg);
+    }
+    
+    if (trnode->msg_rcv != NULL) {
+        msg_put(trnode->msg_rcv);
+        msg_free(trnode->msg_rcv);
+        trnode->msg_rcv = NULL;
+    }
+}
+
 static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mask)
 {
+    int ret;
     redis_node *trnode = privdata;
     tcp_context *tc = trnode->tc;
     listNode *lnode_node, *lnode_msg, *lnode_mbuf;
@@ -1029,8 +1142,9 @@ again:
         if(n == RMT_ERROR){
             log_error("ERROR: errors on connection with node[%s]", trnode->addr);
 
-            //need reconnect to server
-            aeStop(el);
+            //disconnect it and it will reconnect at the writeThreadCron
+            aeDeleteFileEvent(el, tc->sd, AE_READABLE|AE_WRITABLE);
+            target_node_close(trnode);
         }
 
         if(n < (ssize_t)nsend){
@@ -1208,29 +1322,23 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     rmtContext *ctx = srnode->ctx;
     write_thread_data *write_data = srnode->write_data;
     redis_group *trgroup = write_data->trgroup;
-    tcp_context *tc;
+    tcp_context *tc = trnode->tc;
 
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
         listLength(msg->data), trnode->addr);
 
     MSG_CHECK(ctx, msg);
-
-    tc = trnode->tc;
-
-    if(tc->sd < 0)
-    {
+    
+    if (tc->sd < 0) {
         tc->flags &= ~RMT_BLOCK;    
         ret = rmt_tcp_context_connect_addr(tc, trnode->addr, 
             (int)rmt_strlen(trnode->addr), NULL, NULL);
-        if(ret != RMT_OK)
-        {
+        if (ret != RMT_OK) {
             log_error("ERROR: connect to %s failed", trnode->addr);
             return RMT_ERROR;
         }
 
-        log_debug(LOG_DEBUG, "ctx->noreply: %d", ctx->noreply);
-
-        if(ctx->noreply == 0){
+        if (ctx->noreply == 0) {
             ret = aeCreateFileEvent(write_data->loop, tc->sd, 
                 AE_READABLE, recv_data_from_target, trnode);
             if(ret != AE_OK){
@@ -1239,15 +1347,14 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
                 return RMT_ERROR;
             }
 
-            log_debug(LOG_WARN, "node[%s] create read event for thread %ld", 
+            log_debug(LOG_DEBUG, "node[%s] create read event for thread %ld", 
                 trnode->addr, write_data->thread_id);
         }
     }
     
     ret = aeCreateFileEvent(write_data->loop, tc->sd, 
         AE_WRITABLE, send_data_to_target, trnode);
-    if(ret != AE_OK)
-    {
+    if (ret != AE_OK) {
         log_error("ERROR: send_data event create %ld failed: %s",
             write_data->thread_id, strerror(errno));
         return RMT_ERROR;
@@ -1396,35 +1503,10 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
     ASSERT(write_data->loop == el);
     ASSERT(srnode->notice_pipe[0] == fd);
 
-    if(rdb->type == REDIS_RDB_TYPE_FILE)
-    {
-        
-        /*
-        ret = redis_parse_rdb_file(srnode, -1);
-        if(ret != RMT_OK)
-        {
-            log_error("ERROR: redis node %s rdb file parse error", srnode->addr);
-            aeDeleteFileEvent(write_data->loop, 
-                srnode->notice_pipe[0], AE_READABLE);
-            return;
-        }
-        */
-        /*
-            aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
-        ret = aeCreateTimeEvent(write_data->loop, 0, redis_parse_rdb_time, srnode, NULL);
-        if(ret == AE_ERR){
-            log_error("ERROR: Create ae time event for node %s redis_parse_rdb_time failed", 
-                srnode->addr);
-            return;
-        }
-
-        return;
-        */
-
-
+    if (rdb->type == REDIS_RDB_TYPE_FILE) {
         aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
         
-        if(srnode->sk_event < 0){
+        if (srnode->sk_event < 0) {
             srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);
             if(srnode->sk_event < 0){
                 log_error("ERROR: Create sk_event for node[%s] failed: %s", 
@@ -1436,23 +1518,20 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         srnode->timestamp = rmt_msec_now();
         ret = aeCreateFileEvent(write_data->loop, srnode->sk_event, 
             AE_WRITABLE, redis_parse_rdb, srnode);
-        if(ret == AE_ERR)
-        {
+        if (ret == AE_ERR) {
             log_error("ERROR: Create ae write event for node %s parse_request failed", 
                 srnode->addr);
             return;
         }
         
-        return;
-        
+        return;     
     }
 
     aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
     
     ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
         AE_READABLE, parse_request, srnode);
-    if(ret != AE_OK)
-    {
+    if (ret != AE_OK) {
         log_error("ERROR: Create ae read event for node %s parse_request failed", 
             srnode->addr);
         return;
@@ -1483,6 +1562,9 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
+
+    ASSERT(el == write_data->loop);
+    ASSERT(fd == srnode->notice_pipe[0]);
 
     log_debug(LOG_DEBUG, "parse_job %s", srnode->addr);
 
@@ -2107,7 +2189,7 @@ void redis_migrate(rmtContext *ctx, int type)
             NULL, write_thread_run, write_data);
     }
 
-    log_debug(LOG_NOTICE, "migrate job is running...");
+    log_notice("migrate job is running...");
 
 	//wait for the read job finish
 	for(i = 0; i < read_threads_count; i ++){

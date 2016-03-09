@@ -48,7 +48,7 @@ struct redis_node;
 struct redis_group;
 
 typedef uint32_t (*backend_idx_t)(struct redis_group*, uint8_t *, uint32_t);
-typedef struct redis_node* (*backend_node_t)(struct redis_group*, uint8_t *, uint32_t);
+typedef struct redis_node*(*backend_node_t)(struct redis_group*, uint8_t *, uint32_t);
 
 typedef uint32_t (*hash_t)(const char *, size_t);
 
@@ -168,6 +168,8 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type);
 void redis_rdb_deinit(redis_rdb *rdb);
 
 int rmtConnectRedisMaster(redis_node *srnode);
+
+void redisSlaveReplCorn(redis_node *srnode);
 
 void redis_parse_req_rdb(struct msg *r);
 
