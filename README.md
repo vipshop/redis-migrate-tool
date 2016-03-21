@@ -59,6 +59,8 @@ Config file has three parts: source, target and common.
  + random
 
 ### common:
++ **listen**: The listening address and port (name:port or ip:port). Defaults to 127.0.0.1:8888.
++ **max_clients**: The max clients count for the listen port. Defaults to 200.
 + **threads**: The max threads count can be used by redis-migrate-tool. Defaults to the cpu core count.
 + **step**: The step for parse request. The higher the number, the more quickly to migrate, but the more memory used. Defaults to 1.
 + **mbuf_size**: Mbuf size for request. Defaults to 512.
@@ -89,8 +91,8 @@ For example, the configuration file shown below is to migrate data from single t
      - 127.0.0.1:6383:1 server4
 	
 	[common]
+	listen: 0.0.0.0:34345
 	threads: 2
-	noreply: true
 	step: 10
 	mbuf_size: 1024
 	source_safe: true
@@ -134,7 +136,6 @@ Migrate data from rdb file to redis cluster.
 	
 	[common]
 	threads: 1
-	noreply: false
 	step: 5
 	mbuf_size: 512
 	source_safe: false

@@ -60,6 +60,8 @@ typedef struct rmt_conf {
     int           rdb_diskless;
     int           source_safe;
     sds           dir;
+
+    int           max_clients;
 }rmt_conf;
 
 typedef struct conf_value{

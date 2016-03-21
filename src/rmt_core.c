@@ -11,8 +11,7 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
 
 static int read_thread_data_init(read_thread_data *rdata)
 {
-	if(rdata == NULL)
-	{
+	if (rdata == NULL) {
 		return RMT_ERROR;
 	}
 
@@ -23,15 +22,13 @@ static int read_thread_data_init(read_thread_data *rdata)
     rdata->nodes_data = NULL;
 
     rdata->loop = aeCreateEventLoop(1000);
-    if(rdata->loop == NULL)
-    {
+    if (rdata->loop == NULL) {
     	log_error("ERROR: create event loop failed");
         return RMT_ERROR;
     }
     
 	rdata->nodes_data = listCreate();
-	if(rdata->nodes_data == NULL)
-	{
+	if (rdata->nodes_data == NULL) {
 		log_error("ERROR: create node list failed: out of memory");
 		return RMT_ENOMEM;
 	}
@@ -46,19 +43,16 @@ static int read_thread_data_init(read_thread_data *rdata)
 
 static void read_thread_data_deinit(read_thread_data *rdata)
 {
-	if(rdata == NULL)
-	{
+	if (rdata == NULL) {
 		return;
 	}
 
-    if(rdata->loop != NULL)
-	{
+    if (rdata->loop != NULL) {
 		aeDeleteEventLoop(rdata->loop);
 		rdata->loop = NULL;
 	}
 
-	if(rdata->nodes_data != NULL)
-	{
+	if (rdata->nodes_data != NULL) {
 		listRelease(rdata->nodes_data);
 		rdata->nodes_data = NULL;
 	}
@@ -352,9 +346,9 @@ static int read_write_threads_create(rmtContext *ctx,
     struct array *write_threads)
 {
     int ret;
-    int i, j, found, average, read_finish, write_finish;
+    uint32_t i, j;
+    int found, average, read_finish, write_finish;
     int node_count;
-    int threads_hold_nodes_count;
     struct array instances_by_host;
     list *instances;
     read_thread_data *read_data, *read_data_min_rnodes;
@@ -922,7 +916,6 @@ static void begin_replication(aeEventLoop *el, int fd, void *privdata, int mask)
     char c[1];
     redis_node *srnode = privdata;
     read_thread_data *read_data = srnode->read_data;
-    write_thread_data *write_data = srnode->write_data;
     
     RMT_NOTUSED(el);
     RMT_NOTUSED(fd);
@@ -1458,7 +1451,6 @@ error:
 static int response_done(redis_node *trnode, struct msg *resp)
 {
     int ret;
-    listNode *lnode;
     struct msg *req;
     
     if(trnode == NULL || resp == NULL){
@@ -2189,6 +2181,213 @@ void redis_migrate(rmtContext *ctx, int type)
             NULL, write_thread_run, write_data);
     }
 
+    ret = proxy_begin(ctx);
+    if (ret != RMT_OK) {
+        goto done;
+    }
+
+    log_notice("migrate job is running...");
+
+    aeMain(ctx->loop);
+
+	//wait for the read job finish
+	for(i = 0; i < read_threads_count; i ++){
+		read_data = array_get(read_datas, (uint32_t)i);
+		pthread_join(read_data->thread_id, NULL);
+	}
+
+	//wait for the write job finish
+	for(i = 0; i < write_threads_count; i ++){
+		write_data = array_get(write_datas, (uint32_t)i);
+		pthread_join(write_data->thread_id, NULL);
+	}
+
+done:
+
+    if (read_datas != NULL) {
+        read_threads_destroy(read_datas);
+    }
+
+    if (write_datas != NULL) {
+        write_threads_destroy(write_datas);
+    }
+
+    if (srgroup != NULL) {
+        redis_group_deinit(srgroup);
+        rmt_free(srgroup);
+    }
+}
+
+void redis_compare(rmtContext *ctx, int type)
+{
+    int ret;
+    int i;
+    int node_count = 0;
+    int thread_count;
+    int read_threads_count, write_threads_count;
+    int threads_hold_nodes_count;
+    struct array *nodes = NULL;    //type: redis_node
+    redis_group *srgroup = NULL;
+    struct array *read_datas = NULL; //type : read_thread_data
+    read_thread_data *read_data;
+    struct array *write_datas = NULL; //type : write_thread_data
+    write_thread_data *write_data;
+    redis_node *rnode;
+    listNode *lnode;
+
+    RMT_NOTUSED(type);
+
+    if (ctx == NULL || ctx->source_addr == NULL) {
+        goto done;
+    }
+
+    signal(SIGPIPE, SIG_IGN);
+    
+    thread_count = ctx->thread_count;
+    if (thread_count <= 0) {
+        log_error("ERROR: thread count <= 0");
+        return;
+    } else if(thread_count == 1) {
+        thread_count ++;
+	}
+
+    srgroup = source_group_create(ctx);
+    if(srgroup == NULL){
+        log_error("Error: Source redis group create failed");
+        goto done;
+    }
+
+    node_count = (int)dictSize(srgroup->nodes);
+
+    ret = assign_threads(node_count, thread_count, 
+        &read_threads_count, &write_threads_count);
+    if(ret != RMT_OK){
+        log_error("Error: Assign threads failed");
+        goto done;
+    }
+
+    //Create read and write threads data
+    if(!ctx->source_safe || srgroup->kind == GROUP_TYPE_RDBFILE){        
+        if(srgroup->kind == GROUP_TYPE_RDBFILE){
+            read_threads_count = 0;
+            write_threads_count = MIN(node_count,thread_count);
+        }
+
+        read_datas = read_threads_create_unsafe(read_threads_count, 
+            node_count, srgroup);
+        if(read_datas == NULL && read_threads_count > 0){
+            log_error("Error: Read threads create failed");
+            goto done;
+        }
+
+        write_datas = write_threads_create_unsafe(ctx, write_threads_count, 
+            node_count, srgroup);
+        if(write_datas == NULL){
+            log_error("Error: Write threads create failed");
+            goto done;
+        }
+    }else{
+        read_datas = rmt_alloc(sizeof(struct array));
+        if (read_datas == NULL) {
+            log_error("Error: Out of memory");
+            goto done;
+        }
+
+        array_null(read_datas);
+
+        write_datas = rmt_alloc(sizeof(struct array));
+        if (write_datas == NULL) {
+            log_error("Error: Out of memory");
+            goto done;
+        }
+
+        array_null(write_datas);
+        
+        ret = read_write_threads_create(ctx, srgroup->nodes, read_threads_count, 
+            write_threads_count, read_datas, write_datas);
+        if (ret != RMT_OK) {
+            log_error("Error: assign threads failed.");
+            goto done;
+        }
+    }
+
+    read_threads_count = read_datas?array_n(read_datas):0;
+    write_threads_count = write_datas?array_n(write_datas):0;
+
+    log_notice("Total threads count in fact: %d", 
+        read_threads_count+write_threads_count);
+    log_notice("Read threads count in fact: %d", read_threads_count);
+    log_notice("Write threads count in fact: %d", write_threads_count);
+
+    //Check the read threads
+    threads_hold_nodes_count = 0;
+    for (i = 0; i < read_threads_count; i ++) {
+        read_data = array_get(read_datas, i);
+        threads_hold_nodes_count += read_data->nodes_count;
+        
+        log_notice("read thread %d:", i);
+        lnode = read_data->nodes_data->head;
+        while (lnode) {
+            rnode = lnode->value;
+            lnode = lnode->next;
+
+            log_notice("%s", rnode->addr);
+            if (rnode->read_data != read_data) {
+                log_error("Error: node %s read_data is not correct.", 
+                    rnode->addr);
+                goto done;
+            }
+        }
+    }
+    if (threads_hold_nodes_count != node_count && 
+        srgroup->kind != GROUP_TYPE_RDBFILE) {
+        log_error("Error: read threads hold node count %s is wrong", 
+            threads_hold_nodes_count);
+        goto done;
+    }
+
+    //Check the write threads
+    threads_hold_nodes_count = 0;
+    for (i = 0; i < write_threads_count; i ++) {
+        write_data = array_get(write_datas, i);
+        threads_hold_nodes_count += write_data->nodes_count;
+        
+        log_notice("write thread %d:", i);
+        lnode = write_data->nodes->head;
+        while (lnode) {
+            rnode = lnode->value;
+            lnode = lnode->next;
+
+            log_notice("%s", rnode->addr);
+            if (rnode->write_data != write_data) {
+                log_error("Error: node %s write_data is not correct.", 
+                    rnode->addr);
+                goto done;
+            }
+        }
+    }
+    if (threads_hold_nodes_count != node_count) {
+        log_error("Error: write threads hold node count %s is wrong", 
+            threads_hold_nodes_count);
+        goto done;
+    }
+
+    //Run the read job
+    for(i = 0; i < read_threads_count; i ++){
+    	read_data = array_get(read_datas, (uint32_t)i);
+
+        pthread_create(&read_data->thread_id, 
+        	NULL, read_thread_run, read_data);
+    }
+    
+    //Run the write job
+    for(i = 0; i < write_threads_count; i ++){
+        write_data = array_get(write_datas, (uint32_t)i);
+
+        pthread_create(&write_data->thread_id, 
+            NULL, write_thread_run, write_data);
+    }
+
     log_notice("migrate job is running...");
 
 	//wait for the read job finish
@@ -2273,7 +2472,7 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
     if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
+    return strncasecmp(key1, key2, l1) == 0;
 }
 
 void dictSdsDestructor(void *privdata, void *val)

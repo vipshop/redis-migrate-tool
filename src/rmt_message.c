@@ -93,8 +93,7 @@ msg_get(mbuf_base *mb, int request, int kind)
 {
     struct msg *msg;
 
-    if(mb == NULL)
-    {
+    if (mb == NULL) {
         return NULL;
     }
 
@@ -107,16 +106,11 @@ msg_get(mbuf_base *mb, int request, int kind)
     msg->request = request ? 1 : 0;
 
     if (request) {
-        if(kind == REDIS_DATA_TYPE_RDB)
-        {
+        if (kind == REDIS_DATA_TYPE_RDB) {
             msg->parser = redis_parse_req_rdb;
-        }
-        else if(kind == REDIS_DATA_TYPE_CMD)
-        {
+        } else if(kind == REDIS_DATA_TYPE_CMD) {
             msg->parser = redis_parse_req;
-        }
-        else
-        {
+        } else {
             msg_put(msg);
             msg_free(msg);
             return NULL;
@@ -128,16 +122,15 @@ msg_get(mbuf_base *mb, int request, int kind)
     }
 
     msg->data = listCreate();
-    if(msg->data == NULL)
-    {
+    if (msg->data == NULL) {
         msg_put(msg);
         msg_free(msg);
         return NULL;
     }
 
-    if(request){
+    if (request) {
         msg->request = 1;
-    }else{
+    } else {
         msg->request = 0;
     }
 
@@ -561,6 +554,7 @@ int msg_check(rmtContext *ctx, struct msg *msg, int panic)
     return RMT_OK;
     
 error:
+    msg_dump(msg, LOG_ERR);
     if (panic) {
         rmt_stacktrace(1);
         abort();

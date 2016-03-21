@@ -328,7 +328,7 @@ rmt_resolve_inet(char *name, int port, struct sockinfo *si)
     if (status < 0) {
         log_error("ERROR: address resolution of node '%s' service '%s' failed: %s",
                   node, service, gai_strerror(status));
-        return -1;
+        return RMT_ERROR;
     }
 
     /*
@@ -352,7 +352,7 @@ rmt_resolve_inet(char *name, int port, struct sockinfo *si)
 
     freeaddrinfo(ai);
 
-    return !found ? -1 : 0;
+    return !found ? RMT_ERROR : RMT_OK;
 }
 
 static int
@@ -361,7 +361,7 @@ rmt_resolve_unix(char *name, struct sockinfo *si)
     struct sockaddr_un *un;
 
     if (strlen(name) >= RMT_UNIX_ADDRSTRLEN) {
-        return -1;
+        return RMT_ERROR;
     }
 
     un = &si->addr.un;
@@ -374,7 +374,7 @@ rmt_resolve_unix(char *name, struct sockinfo *si)
     si->addrlen = sizeof(*un);
     /* si->addr is an alias of un */
 
-    return 0;
+    return RMT_OK;
 }
 
 /*

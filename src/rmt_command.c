@@ -4,10 +4,12 @@
 #define COMMAND_NAME_MAX_LENGTH 30
 
 struct RMTCommand rmtCommandTable[] = {
-    {RMT_CMD_REDIS_MIGRATE, "MIgrate redis.", 
+    {RMT_CMD_REDIS_MIGRATE, "Migrate data from source redis group to target redis group.", 
         redis_migrate, -1, 0, 0, 0},
     {RMT_CMD_KEYS_NUM, "Show the group keys number.", 
-        group_state, REDIS_KEY_NUM, 1, 1, 0}
+        group_state, REDIS_KEY_NUM, 1, 1, 0},
+    {RMT_CMD_REDIS_COMPARE, "Compare data between source redis group to target redis group.", 
+        redis_compare, -1, 0, 0, 0}
 };
 
 void

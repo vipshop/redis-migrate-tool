@@ -54,6 +54,14 @@ init_context(struct instance *rmti)
     rmt_ctx->source_safe = 0;
     rmt_ctx->dir = NULL;
 
+    rmt_ctx->loop = NULL;
+    rmt_ctx->proxy = NULL;
+    rmt_ctx->max_ncconn = 0;
+    rmt_ctx->ntotal_cconn = 0;
+    rmt_ctx->ncurr_cconn = 0;
+    listInit(&rmt_ctx->clients);
+    rmt_ctx->mb = NULL;
+
     commands = dictCreate(&commandTableDictType,NULL);
     if(commands == NULL)
     {
@@ -106,8 +114,10 @@ init_context(struct instance *rmti)
     rmt_ctx->step = rmti->step;
     rmt_ctx->source_safe = rmti->source_safe;
 
+    rmt_ctx->max_ncconn = rmti->max_clients;
+
     cf = conf_create(rmti->conf_filename);
-    if(cf == NULL){
+    if (cf == NULL) {
         log_error("ERROR: Conf create from conf file %s failed", 
             rmti->conf_filename);
         destroy_context(rmt_ctx);
@@ -128,24 +138,55 @@ init_context(struct instance *rmti)
         rmt_ctx->step = cf->step;
     }
 
-    if(cf->mbuf_size != CONF_UNSET_NUM){
+    if (cf->mbuf_size != CONF_UNSET_NUM) {
         rmt_ctx->mbuf_size = cf->mbuf_size;
     }
     
-    if(cf->noreply != CONF_UNSET_NUM){
+    if (cf->noreply != CONF_UNSET_NUM) {
         rmt_ctx->noreply = cf->noreply;
     }
 
-    if(cf->rdb_diskless != CONF_UNSET_NUM){
+    if (cf->rdb_diskless != CONF_UNSET_NUM) {
         rmt_ctx->rdb_diskless = cf->rdb_diskless;
     }
 
-    if(cf->source_safe != CONF_UNSET_NUM){
+    if (cf->source_safe != CONF_UNSET_NUM) {
         rmt_ctx->source_safe = cf->source_safe;
     }
 
     if (cf->dir != CONF_UNSET_PTR) {
         rmt_ctx->dir = sdsdup(cf->dir);
+    }
+
+    rmt_ctx->loop = aeCreateEventLoop(1000);
+    if (rmt_ctx->loop == NULL) {
+    	log_error("ERROR: create event loop failed");
+        destroy_context(rmt_ctx);
+        return NULL;
+    }
+
+    if (cf->listen != CONF_UNSET_PTR) {
+        ret = rmt_listen_init(&rmt_ctx->lt, cf->listen);
+    } else {
+        ret = rmt_listen_init(&rmt_ctx->lt, rmti->listen);
+    }
+    if (ret != RMT_OK) {
+        log_error("ERROR: rmt_listen init failed");
+        destroy_context(rmt_ctx);
+        return NULL;
+    }
+
+    if (cf->max_clients != CONF_UNSET_NUM) {
+        rmt_ctx->max_ncconn = (uint32_t)cf->max_clients;
+    }
+
+    rmt_ctx->mb = mbuf_base_create(
+        REDIS_CMD_MBUF_BASE_SIZE, 
+        mttlist_init_with_unlocklist);
+    if (rmt_ctx->mb == NULL) {
+        log_error("ERROR: Create mbuf_base failed");
+        destroy_context(rmt_ctx);
+        return NULL;
     }
     
     return rmt_ctx;
@@ -153,6 +194,9 @@ init_context(struct instance *rmti)
 
 void destroy_context(rmtContext *rmt_ctx)
 {
+    listNode *lnode;
+    rmt_connect *c;
+
     if(rmt_ctx == NULL){
         return;
     }
@@ -179,6 +223,30 @@ void destroy_context(rmtContext *rmt_ctx)
 
     if (rmt_ctx->dir != NULL) {
         sdsfree(rmt_ctx->dir);
+    }
+
+    while(listLength(&rmt_ctx->clients) > 0) {
+        lnode = listFirst(&rmt_ctx->clients);
+        c = listNodeValue(lnode);
+        listDelNode(&rmt_ctx->clients, lnode);
+        c->close(rmt_ctx,c);
+    }
+
+    if (rmt_ctx->loop != NULL) {
+		aeDeleteEventLoop(rmt_ctx->loop);
+		rmt_ctx->loop = NULL;
+	}
+
+    if (rmt_ctx->proxy != NULL) {
+        rmt_ctx->proxy->close(rmt_ctx, rmt_ctx->proxy);
+        rmt_ctx->proxy = NULL;
+    }
+
+    rmt_listen_deinit(&rmt_ctx->lt);
+
+    if (rmt_ctx->mb != NULL) {
+        mbuf_base_destroy(rmt_ctx->mb);
+        rmt_ctx->mb = NULL;
     }
 
     rmt_free(rmt_ctx);
@@ -365,8 +433,7 @@ int main(int argc,char *argv[])
     }
 
     rmt_ctx = init_context(&rmti);
-    if(rmt_ctx == NULL)
-    {
+    if (rmt_ctx == NULL) {
         return RMT_ERROR;
     }
     

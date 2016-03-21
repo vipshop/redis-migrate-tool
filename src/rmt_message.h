@@ -4,6 +4,7 @@
 
 struct msg;
 struct rmtContext;
+struct redis_group;
 
 typedef void (*msg_parse_t)(struct msg *);
 //typedef rstatus_t (*msg_add_auth_t)(struct context *ctx, struct conn *c_conn, struct conn *s_conn);

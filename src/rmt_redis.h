@@ -75,6 +75,8 @@ typedef struct redis_rdb{
     int state;
 
     int deleted:1;  		/* if the rdb file deleted after parse */
+
+    int (*handler)(struct redis_node *, sds, int, struct array *, int, long long, void *);
 }redis_rdb;
 
 /*redis replication*/
@@ -189,7 +191,7 @@ void redis_rdb_update_checksum(redis_rdb *rdb, const void *buf, size_t len);
 
 void redis_delete_rdb_file(redis_rdb *rdb, int always);
 
-int redis_parse_rdb_file(redis_node *srnode, int step);
+int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time);
 int redis_parse_rdb_time(aeEventLoop *el, long long id, void *privdata);
 void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask);
 

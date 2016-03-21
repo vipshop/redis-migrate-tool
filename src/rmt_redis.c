@@ -169,10 +169,15 @@ static dictType groupNodesDictType = {
 
 static int rmtRedisSlaveAgainOnline(redis_node *srnode);
 static void rmtRedisSlaveOffline(redis_node *srnode);
+static int redis_key_value_send(redis_node *srnode, sds key, 
+    int data_type, struct array *value, 
+    int expiretime_type, long long expiretime, 
+    void *data);
+
 
 int redis_replication_init(redis_repl *rr)
 {
-    if(rr == NULL){
+    if (rr == NULL) {
         return RMT_ERROR;
     }
 
@@ -199,7 +204,7 @@ int redis_replication_init(redis_repl *rr)
 
 void redis_replication_deinit(redis_repl *rr)
 {
-    if(rr == NULL){
+    if (rr == NULL) {
         return;
     }
 
@@ -225,9 +230,10 @@ void redis_replication_deinit(redis_repl *rr)
 int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
 {
     int ret;
+    rmtContext *ctx = rgroup->ctx;
 
-    if(rnode == NULL || addr == NULL 
-        || rgroup == NULL){
+    if (rnode == NULL || addr == NULL 
+        || rgroup == NULL) {
         return RMT_ERROR;
     }
     
@@ -270,36 +276,35 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
     rnode->owner = rgroup;
 
     rnode->addr = rmt_strdup(addr);
-    if(rnode->addr == NULL){
+    if (rnode->addr == NULL) {
         log_error("ERROR: Out of memory");
         goto error;
     }
 
     rnode->tc = rmt_tcp_context_create();
-    if(rnode->tc == NULL)
-    {
+    if (rnode->tc == NULL) {
         log_error("ERROR: create tcp_context failed: out of memory");
         goto error;
     }
 
-    if(rgroup->source){
-        rnode->ctx = rgroup->ctx;
+    if (rgroup->source) {
+        rnode->ctx = ctx;
 
         rnode->rdb = rmt_alloc(sizeof(*rnode->rdb));
-        if(rnode->rdb == NULL)
-        {
+        if (rnode->rdb == NULL) {
             log_error("ERROR: Create rdb failed: out of memory");
             goto error;
         }
-
         ret = redis_rdb_init(rnode->rdb, addr, REDIS_RDB_TYPE_FILE);
-        if(ret != RMT_OK)
-        {
+        if (ret != RMT_OK) {
             log_error("ERROR: Init srnode->rdb failed");
             goto error;
         }
+        if (!strcasecmp(ctx->cmd, RMT_CMD_REDIS_MIGRATE)) {
+            rnode->rdb->handler = redis_key_value_send;
+        }
 
-        if(rgroup->kind == GROUP_TYPE_RDBFILE){
+        if (rgroup->kind == GROUP_TYPE_RDBFILE) {
             sdsrange(rnode->rdb->fname,0,0);
             rnode->rdb->fname = sdscat(rnode->rdb->fname, addr);
             log_debug(LOG_DEBUG, "rdb->fname: %s", rnode->rdb->fname);
@@ -307,97 +312,83 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         }
 
         rnode->rr = rmt_alloc(sizeof(*rnode->rr));
-        if(rnode->rr == NULL)
-        {
+        if (rnode->rr == NULL) {
             log_error("ERROR: Create redis_repl failed: out of memory");
             goto error;
         }
 
         ret = redis_replication_init(rnode->rr);
-        if(ret != RMT_OK)
-        {
+        if (ret != RMT_OK) {
             log_error("ERROR: Init redis replication failed");
             goto error;
         }        
         
         rnode->cmd_data = mttlist_create();
-        if(rnode->cmd_data == NULL)
-        {
+        if (rnode->cmd_data == NULL) {
             log_error("ERROR: Create cmd_data list failed: out of memory");
             goto error;
         }
 
         rnode->piece_data = listCreate();
-        if(rnode->piece_data == NULL)
-        {
+        if (rnode->piece_data == NULL) {
             log_error("ERROR: Create piece data for source node failed: out of memory");
             goto error;
         }
 
         ret = mttlist_init_with_locklist(rnode->cmd_data);
-        if(ret != RMT_OK)
-        {
+        if (ret != RMT_OK) {
             log_error("ERROR: Init cmd_data list failed: out of memory");
             goto error;
         }
 
         ret = pipe(rnode->notice_pipe);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_pipe[0]);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
                 rnode->notice_pipe[0], strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_pipe[1]);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
                 rnode->notice_pipe[1], strerror(errno));
             goto error;
         }
 
         ret = pipe(rnode->notice_read_pipe);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Notice_read_pipe init failed: %s", strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_read_pipe[0]);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Set notice_read_pipe[0] %d nonblock failed: %s", 
                 rnode->notice_read_pipe[0], strerror(errno));
             goto error;
         }
 
         ret = rmt_set_nonblocking(rnode->notice_read_pipe[1]);
-        if(ret < 0)
-        {
+        if (ret < 0) {
             log_error("ERROR: Set notice_read_pipe[1] %d nonblock failed: %s", 
                 rnode->notice_read_pipe[1], strerror(errno));
             goto error;
         }
-    }else{
-
+    }else { 
         rnode->send_data = listCreate();
-        if(rnode->send_data == NULL)
-        {
+        if (rnode->send_data == NULL) {
             log_error("ERROR: Create msg list failed: out of memory");
             goto error;
         }
 
         rnode->sent_data = listCreate();
-        if(rnode->sent_data == NULL)
-        {
+        if (rnode->sent_data == NULL) {
             log_error("ERROR: Create msg list failed: out of memory");
             goto error;
         }
@@ -419,40 +410,36 @@ void redis_node_deinit(redis_node *rnode)
     struct mbuf *mbuf;
     struct msg *msg;
 
-    if(rnode == NULL){
+    if (rnode == NULL) {
         return;
     }
 
-    if(rnode->ctx != NULL){
+    if (rnode->ctx != NULL) {
         rnode->ctx = NULL;
     }   
 
-    if(rnode->owner != NULL){
+    if (rnode->owner != NULL) {
         rnode->owner = NULL;
     }
 
-    if(rnode->addr != NULL){
+    if (rnode->addr != NULL) {
         free(rnode->addr);
         rnode->addr = NULL;
     }
 
-    if(rnode->tc != NULL)
-    {
+    if (rnode->tc != NULL) {
         rmt_tcp_context_destroy(rnode->tc);
         rnode->tc = NULL;
     }
 
-    if(rnode->rdb != NULL)
-    {
+    if (rnode->rdb != NULL) {
         redis_rdb_deinit(rnode->rdb);
         rmt_free(rnode->rdb);
         rnode->rdb = NULL;
     }
     
-    if(rnode->cmd_data != NULL)
-    {
-        while(!mttlist_empty(rnode->cmd_data))
-        {
+    if (rnode->cmd_data != NULL) {
+        while (!mttlist_empty(rnode->cmd_data)) {
             mbuf = mttlist_pop(rnode->cmd_data);
             mbuf_put(mbuf);
         }
@@ -461,46 +448,39 @@ void redis_node_deinit(redis_node *rnode)
         rnode->cmd_data = NULL;
     }
 
-    if(rnode->notice_pipe[0] > 0)
-    {
+    if (rnode->notice_pipe[0] > 0) {
         close(rnode->notice_pipe[0]);
         rnode->notice_pipe[0] = -1;
     }
 
-    if(rnode->notice_pipe[1] > 0)
-    {
+    if (rnode->notice_pipe[1] > 0) {
         close(rnode->notice_pipe[1]);
         rnode->notice_pipe[1] = -1;
     }
 
-    if(rnode->notice_read_pipe[0] > 0)
-    {
+    if (rnode->notice_read_pipe[0] > 0) {
         close(rnode->notice_read_pipe[0]);
         rnode->notice_read_pipe[0] = -1;
     }
 
-    if(rnode->notice_read_pipe[1] > 0)
-    {
+    if (rnode->notice_read_pipe[1] > 0) {
         close(rnode->notice_read_pipe[1]);
         rnode->notice_read_pipe[1] = -1;
     }
 
-    if(rnode->mbuf_in != NULL)
-    {
+    if (rnode->mbuf_in != NULL) {
         mbuf_put(rnode->mbuf_in);
         rnode->mbuf_in = NULL;
     }
 
-    if(rnode->rr != NULL){
+    if (rnode->rr != NULL) {
         redis_replication_deinit(rnode->rr);
         rmt_free(rnode->rr);
         rnode->rr = NULL;
     }
 
-    if(rnode->send_data != NULL)
-    {
-        while((msg = listPop(rnode->send_data)) != NULL)
-        {
+    if (rnode->send_data != NULL) {
+        while ((msg = listPop(rnode->send_data)) != NULL) {
             ASSERT(msg->request && !msg->sent);
             msg_put(msg);
             msg_free(msg);
@@ -510,10 +490,8 @@ void redis_node_deinit(redis_node *rnode)
         rnode->send_data = NULL;
     }
 
-    if(rnode->sent_data != NULL)
-    {
-        while((msg = listPop(rnode->sent_data)) != NULL)
-        {
+    if (rnode->sent_data != NULL) {
+        while ((msg = listPop(rnode->sent_data)) != NULL) {
             ASSERT(msg->request && msg->sent);
             msg_put(msg);
             msg_free(msg);
@@ -523,15 +501,14 @@ void redis_node_deinit(redis_node *rnode)
         rnode->sent_data = NULL;
     }
 
-    if(rnode->msg_rcv != NULL)
-    {
+    if (rnode->msg_rcv != NULL) {
         msg_put(rnode->msg_rcv);
         msg_free(rnode->msg_rcv);
         rnode->msg_rcv = NULL;
     }
 
-    if(rnode->piece_data != NULL){
-        while((mbuf = listPop(rnode->piece_data)) != NULL){
+    if (rnode->piece_data != NULL) {
+        while ((mbuf = listPop(rnode->piece_data)) != NULL) {
             mbuf_put(mbuf);
         }
         
@@ -539,7 +516,7 @@ void redis_node_deinit(redis_node *rnode)
         rnode->piece_data = NULL;
     }
 
-    if(rnode->msg != NULL){
+    if (rnode->msg != NULL) {
         msg_put(rnode->msg);
         msg_free(rnode->msg);
         rnode->msg = NULL;
@@ -551,7 +528,7 @@ void redis_node_deinit(redis_node *rnode)
     
     rnode->timestamp = 0;
 
-    if(rnode->sk_event > 0){
+    if (rnode->sk_event > 0) {
         close(rnode->sk_event);
         rnode->sk_event = -1;
     }
@@ -565,7 +542,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 {
     int ret;
 
-    if(rgroup == NULL){
+    if (rgroup == NULL) {
         return RMT_ERROR;
     }
 
@@ -588,41 +565,37 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
     rgroup->ctx = ctx;
 
-    if(source){
+    if(source) {
         rgroup->source = 1;
         rgroup->mb = mbuf_base_create(
             ctx->mbuf_size, NULL);
-        if(rgroup->mb == NULL)
-        {
+        if (rgroup->mb == NULL) {
             log_error("ERROR: Create mbuf_base failed");
             goto error;
         }
-    }else{
+    } else {
         rgroup->mb = mbuf_base_create(
             REDIS_RESPONSE_MBUF_BASE_SIZE, 
             mttlist_init_with_unlocklist);
-        if(rgroup->mb == NULL)
-        {
+        if (rgroup->mb == NULL) {
             log_error("ERROR: Create mbuf_base failed");
             goto error;
         }
     }
 
     rgroup->nodes = dictCreate(&groupNodesDictType, NULL);
-    if(rgroup->nodes == NULL)
-    {
+    if (rgroup->nodes == NULL) {
         log_error("ERROR: Create nodes dict failed: out of memory");
         goto error;
     }
 
-    if(cp != NULL){
+    if (cp != NULL) {
         rgroup->kind = cp->type;
         
-        switch(cp->type){
+        switch(cp->type) {
         case GROUP_TYPE_SINGLE:
             ret = redis_single_init_from_conf(rgroup, cp);
-            if(ret != RMT_OK)
-            {
+            if (ret != RMT_OK) {
                 log_error("ERROR: Redis single init failed");
                 goto error;
             }
@@ -632,8 +605,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             break;
         case GROUP_TYPE_TWEM:
             ret = redis_twem_init_from_conf(rgroup, cp);
-            if(ret != RMT_OK)
-            {
+            if (ret != RMT_OK) {
                 log_error("ERROR: Redis twemproxy init failed");
                 goto error;
             }
@@ -643,8 +615,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             break;
         case GROUP_TYPE_RCLUSTER:
             ret = redis_cluster_init_from_conf(rgroup, cp);
-            if(ret != RMT_OK)
-            {
+            if (ret != RMT_OK) {
                 log_error("ERROR: Redis cluster init failed");
                 goto error;
             }
@@ -654,8 +625,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             break;
         case GROUP_TYPE_RDBFILE:
             ret = redis_rdb_file_init_from_conf(rgroup, cp);
-            if(ret != RMT_OK)
-            {
+            if (ret != RMT_OK) {
                 log_error("ERROR: Redis cluster init failed");
                 goto error;
             }
@@ -668,7 +638,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             break;
         }
 
-        if(cp->hash != CONF_UNSET_HASH){
+        if (cp->hash != CONF_UNSET_HASH) {
             rgroup->key_hash = hash_algos[cp->hash];
         }
 
@@ -687,26 +657,26 @@ error:
 
 void redis_group_deinit(redis_group *rgroup)
 {
-    if(rgroup == NULL){
+    if (rgroup == NULL) {
         return;
     }
 
-    if(rgroup->kind != GROUP_TYPE_UNKNOW){
+    if (rgroup->kind != GROUP_TYPE_UNKNOW) {
         rgroup->kind = GROUP_TYPE_UNKNOW;
     }
 
-    if(rgroup->nodes != NULL){
+    if (rgroup->nodes != NULL) {
         dictRelease(rgroup->nodes);
         rgroup->nodes = NULL;
     }
 
-    if(rgroup->route != NULL){
+    if (rgroup->route != NULL) {
         rgroup->route->nelem = 0;
         array_destroy(rgroup->route);
         rgroup->route = NULL;
     }
 
-    if(rgroup->mb != NULL){
+    if (rgroup->mb != NULL) {
         mbuf_base_destroy(rgroup->mb);
         rgroup->mb = NULL;
     }
@@ -725,14 +695,12 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
 {
     int ret;
 
-    if(rdb == NULL)
-    {
+    if (rdb == NULL) {
         return RMT_ERROR;
     }
 
-    if(type != REDIS_RDB_TYPE_FILE && 
-        type != REDIS_RDB_TYPE_MEM)
-    {
+    if (type != REDIS_RDB_TYPE_FILE && 
+        type != REDIS_RDB_TYPE_MEM) {
         return RMT_ERROR;
     }
 
@@ -751,32 +719,32 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
 
     rdb->deleted = 0;
 
+    rdb->handler = NULL;
+
     rdb->update_cksum = redis_rdb_update_checksum;
 
     rdb->mb = mbuf_base_create(
         REDIS_RDB_MBUF_BASE_SIZE, NULL);
-    if(rdb->mb == NULL)
-    {
+    if (rdb->mb == NULL) {
         log_error("ERROR: create mbuf_base failed");
         goto error;
     }
 
-    if(type == REDIS_RDB_TYPE_FILE)
-    {
+    if (type == REDIS_RDB_TYPE_FILE) {
         rdb->fname = sdsempty();
         if (rdb->fname == NULL) {
             log_error("ERROR: out of memory");
             goto error;            
         }
-    }else if(REDIS_RDB_TYPE_MEM){
+    } else if(REDIS_RDB_TYPE_MEM) {
         rdb->data = mttlist_create();
-        if(rdb->data == NULL){
+        if (rdb->data == NULL) {
             log_error("ERROR: create rdb data list failed: out of memory");
             goto error;
         }
 
         ret = mttlist_init_with_locklist(rdb->data);
-        if(ret != RMT_OK){
+        if (ret != RMT_OK) {
             log_error("ERROR: init rdb data list failed: out of memory");
             goto error;
         }
@@ -798,12 +766,9 @@ void redis_rdb_deinit(redis_rdb *rdb)
 {
     struct mbuf *mbuf;
 
-    if(rdb->data != NULL)
-    {
-        if(rdb->mb != NULL)
-        {
-            while(!mttlist_empty(rdb->data))
-            {
+    if (rdb->data != NULL) {
+        if (rdb->mb != NULL) {
+            while (!mttlist_empty(rdb->data)) {
                 mbuf = mttlist_pop(rdb->data);
                 mbuf_put(mbuf);
             }
@@ -813,19 +778,16 @@ void redis_rdb_deinit(redis_rdb *rdb)
         rdb->data = NULL;
     }
 
-    if(rdb->fd > 0)
-    {
+    if (rdb->fd > 0) {
         close(rdb->fd);
         rdb->fd = -1;
     }
 
-    if(rdb->fname != NULL)
-    {
+    if (rdb->fname != NULL) {
         redis_delete_rdb_file(rdb, 0);
     }
 
-    if(rdb->mbuf != NULL)
-    {
+    if (rdb->mbuf != NULL) {
         if(rdb->mb != NULL)
         {
             mbuf_put(rdb->mbuf);
@@ -834,31 +796,31 @@ void redis_rdb_deinit(redis_rdb *rdb)
         rdb->mbuf = NULL;
     }
 
-    if(rdb->mb != NULL)
-    {
+    if (rdb->mb != NULL) {
         mbuf_base_destroy(rdb->mb);
         rdb->mb = NULL;
     }
 
-    if(rdb->fp != NULL)
-    {
+    if (rdb->fp != NULL) {
         fclose(rdb->fp);
         rdb->fp = NULL;
     }
 
-    if(rdb->cksum > 0)
-    {
+    if (rdb->cksum > 0) {
         rdb->cksum = 0;
     }
     
-    if(rdb->update_cksum != NULL)
-    {
+    if (rdb->update_cksum != NULL) {
         rdb->update_cksum = NULL;
     }
 
     rdb->state = 0;
 
     rdb->deleted = 0;
+
+    if (rdb->handler != NULL) {
+        rdb->handler = NULL;
+    }
 }
 
 /* ========================== Redis Replication ============================ */
@@ -5651,16 +5613,134 @@ del:
     }
 }
 
+/*
+  * return: 
+  * -1 error
+  * 0 no msg sent
+  * >0 mbuf count sent 
+  */
+static int redis_key_value_send(redis_node *srnode, sds key, 
+    int data_type, struct array *value, 
+    int expiretime_type, long long expiretime, 
+    void *data)
+{
+    int ret;
+    rmtContext *ctx = srnode->ctx;
+    redis_group *srgroup = srnode->owner;
+    mbuf_base *mb = srgroup->mb;
+    redis_group *trgroup = data;
+    long long now = rmt_msec_now();
+    redis_node *trnode;
+    sds expiretime_str = NULL;
+    struct msg *msg = NULL;
+    uint32_t i;
+    int mbuf_count = 0;
+
+    if (expiretime_type == RMT_TIME_SECOND) {
+        if(expiretime * 1000 < now){
+            return 0;
+        }
+
+        expiretime_str = sdsfromlonglong(expiretime);
+    } else if(expiretime_type == RMT_TIME_MILLISECOND) {
+        if (expiretime < now) {
+            return 0;
+        }
+
+        expiretime_str = sdsfromlonglong(expiretime);
+    }
+
+    trnode = trgroup->get_backend_node(trgroup, (uint8_t *)key, (uint32_t)sdslen(key));
+    if (trnode == NULL) {
+        log_error("ERROR: Get key %s backend node is NULL", key);
+        goto error;
+    }
+
+    msg = redis_generate_msg_with_key_value(ctx, mb, data_type, 
+        key, value, expiretime_type, expiretime_str);
+    if (msg == NULL) {
+        log_error("ERROR: generate msg with key value failed");
+        goto error;
+    }
+
+    if (msg->frag_seq == NULL) {
+        mbuf_count += listLength(msg->data);
+        ret = prepare_send_msg(srnode, msg, trnode);
+        if (ret != RMT_OK) {
+            log_error("ERROR: prepare send msg to node[%s] failed.", 
+                trnode->addr);
+            goto error;
+        }
+        msg = NULL;
+    } else {
+        for (i = 0; i < msg->nfrag; i ++) {
+            mbuf_count += listLength(msg->frag_seq[i]->data);
+            ret = prepare_send_msg(srnode, msg->frag_seq[i], trnode);
+            if (ret != RMT_OK) {
+                log_error("ERROR: prepare send msg to node[%s] failed.", 
+                    trnode->addr);
+                goto error;
+            }
+            msg->frag_seq[i] = NULL;
+        }
+        
+        msg_put(msg);
+        msg_free(msg);
+        msg = NULL;
+    }
+
+    if (expiretime_type != RMT_TIME_NONE) {
+        msg = redis_generate_msg_with_key_expire(ctx, mb, key, 
+            expiretime_type, expiretime_str);
+        if (msg == NULL) {
+            log_error("ERROR: generate msg with key value failed");
+            goto error;
+        }
+
+        ret = prepare_send_msg(srnode, msg, trnode);
+        if (ret != RMT_OK) {
+            log_error("ERROR: prepare send msg to node[%s] failed.", 
+                trnode->addr);
+            goto error;
+        }
+
+        mbuf_count += listLength(msg->data);
+        msg = NULL;
+    }
+
+    return mbuf_count;
+        
+error:
+
+    if (expiretime_str != NULL) {
+        sdsfree(expiretime_str);
+        expiretime_str = NULL;
+    }
+
+    if (msg != NULL) {
+        if (msg->frag_seq!= NULL) {
+            for (i = 0; i < msg->nfrag; i ++) {
+                if (msg->frag_seq[i] != NULL) {
+                    msg_put(msg->frag_seq[i]);
+                    msg_free(msg->frag_seq[i]);
+                    msg->frag_seq[i] = NULL;
+                }
+            }
+        }
+        msg_put(msg);
+        msg_free(msg);
+    }
+    
+    return -1;
+}
+
 int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 {
-    int ret = RMT_OK;
+    int ret;
     uint32_t i;
     redis_rdb *rdb = srnode->rdb;
     write_thread_data *write_data = srnode->write_data;
-    redis_group *srgroup = srnode->owner;
     redis_group *trgroup = write_data->trgroup;
-    mbuf_base *mb = srgroup->mb;
-    rmtContext *ctx = srnode->ctx;
     char buf[20];
     size_t len;
     uint32_t dbid;
@@ -5668,21 +5748,17 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     int rdbver;
     int32_t t32;
     int64_t t64;
-    long long expiretime = -1, now = rmt_msec_now();
+    long long expiretime = -1, now;
     int expiretime_type;
-    sds expiretime_str = NULL;
     sds key;
     struct array *value;
     int data_type;
-    redis_node *trnode;
-    struct msg *msg;
-    long long mbuf_count, mbuf_count_max;
+    int mbuf_count, mbuf_count_max;
 
     ASSERT(rdb->type == REDIS_RDB_TYPE_FILE);
 
     key = NULL;
     value = NULL;
-    msg = NULL;
     mbuf_count = 0;
     mbuf_count_max = mbuf_count_one_time;
 
@@ -5695,28 +5771,28 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     state = rdb->state;
 
-    if(state == RDB_FILE_PARSE_START){
+    if (state == RDB_FILE_PARSE_START) {
         if ((rdb->fp = fopen(rdb->fname,"r")) == NULL){
             log_error("ERROR: Open rdb file %s failed: %s", 
                 rdb->fname, strerror(errno));
             goto error;
         }
 
-        if(redis_rdb_file_read(rdb, buf, 9) != RMT_OK){
+        if (redis_rdb_file_read(rdb, buf, 9) != RMT_OK) {
             log_error("ERROR: redis rdb file %s read first 9 char error", 
                 rdb->fname);
             goto eoferr;
         }
         
         len = rmt_strlen(REDIS_RDB_MAGIC_STR);
-        if(memcmp(buf, REDIS_RDB_MAGIC_STR, len) != 0){
+        if (memcmp(buf, REDIS_RDB_MAGIC_STR, len) != 0) {
             log_error("ERROR: Redis rdb file %s magic string is error: %.*s",
                 rdb->fname, len, buf);
             goto error;
         }
 
         rdbver = rmt_atoi(buf+len, 4);
-        if(rdbver < 1 || rdbver > REDIS_RDB_VERSION){
+        if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
             log_error("ERROR: Redis rdb file %s version is error: %d",
                 rdb->fname, rdbver);
             goto error;
@@ -5725,20 +5801,18 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         rdb->state = RDB_FILE_PARSE_AGAIN;
     }
 
-    while(1)
-    {
+    while(1) {
         expiretime_type = RMT_TIME_NONE;
-        expiretime_str = NULL;
         data_type = -1;
         
-        if(redis_rdb_file_read(rdb, &type, 1) != RMT_OK){
+        if (redis_rdb_file_read(rdb, &type, 1) != RMT_OK) {
             log_error("ERROR: redis rdb file %s read type error", 
                 rdb->fname);
             goto eoferr;
         }
 
-        if (type == REDIS_RDB_OPCODE_EXPIRETIME){
-            if(redis_rdb_file_read(rdb, (&t32), 4) != RMT_OK){
+        if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
+            if (redis_rdb_file_read(rdb, (&t32), 4) != RMT_OK) {
                 log_error("ERROR: redis rdb file %s read 4 expiretime error", 
                     rdb->fname);
                 goto eoferr;
@@ -5746,15 +5820,15 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
             expiretime = (time_t)t32;
             
-            if(redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK){
+            if (redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK) {
                 log_error("ERROR: redis rdb file %s read type error", 
                     rdb->fname);
                 goto eoferr;
             }
 
             expiretime_type = RMT_TIME_SECOND;
-        }else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
-            if(redis_rdb_file_read(rdb, (&t64), 8) != RMT_OK){
+        } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
+            if (redis_rdb_file_read(rdb, (&t64), 8) != RMT_OK) {
                 log_error("ERROR: redis rdb file %s read 8 expiretime error", 
                     rdb->fname);
                 goto eoferr;
@@ -5762,7 +5836,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
             expiretime = (long long)t64;
             
-            if(redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK){
+            if (redis_rdb_file_read(rdb, (unsigned char*)(&type), 1) != RMT_OK) {
                 log_error("ERROR: redis rdb file %s read type error", 
                     rdb->fname);
                 goto eoferr;
@@ -5771,13 +5845,13 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             expiretime_type = RMT_TIME_MILLISECOND;
         }
 
-        if (type == REDIS_RDB_OPCODE_EOF){
+        if (type == REDIS_RDB_OPCODE_EOF) {
             break;
         }
 
-        if (type == REDIS_RDB_OPCODE_SELECTDB){
-            if((dbid = redis_rdb_file_load_len(rdb, NULL)) 
-                == REDIS_RDB_LENERR){
+        if (type == REDIS_RDB_OPCODE_SELECTDB) {
+            if ((dbid = redis_rdb_file_load_len(rdb, NULL)) 
+                == REDIS_RDB_LENERR) {
                 log_error("ERROR: redis rdb file %s read db num error", 
                     rdb->fname);
                 goto eoferr;
@@ -5787,20 +5861,20 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             continue;
         }
 
-        if ((key = redis_rdb_file_load_str(rdb)) == NULL){
+        if ((key = redis_rdb_file_load_str(rdb)) == NULL) {
             log_error("ERROR: redis rdb file %s read key error", 
                 rdb->fname);
             goto eoferr;
         }
 
-        if ((value = redis_rdb_file_load_value(rdb, type)) == NULL){
+        if ((value = redis_rdb_file_load_value(rdb, type)) == NULL) {
             log_error("ERROR: redis rdb file %s read value error", 
                 rdb->fname);
             goto eoferr;
         }
 
         data_type = redis_object_type_get_by_rdbtype(type);
-        if(data_type < 0){
+        if (data_type < 0) {
             log_error("ERROR: get redis object type by rdbtype failed");
             goto error;
         }
@@ -5808,101 +5882,27 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         log_debug(LOG_DEBUG, "key: %s, value array length: %u", 
             key, array_n(value));
 
-        if(expiretime_type == RMT_TIME_SECOND){
-            if(expiretime * 1000 < now){
-                sdsfree(key);
-                key = NULL;
-                if(value != NULL){
-                    redis_value_destroy(value);
-                    value = NULL;
-                }
-                continue;
-            }
-
-            expiretime_str = sdsfromlonglong(expiretime);
-        }else if(expiretime_type == RMT_TIME_MILLISECOND){
-            if(expiretime < now){
-                sdsfree(key);
-                key = NULL;
-                if(value != NULL){
-                    redis_value_destroy(value);
-                    value = NULL;
-                }
-                continue;
-            }
-
-            expiretime_str = sdsfromlonglong(expiretime);
-        }
-
-        trnode = trgroup->get_backend_node(trgroup, (uint8_t *)key, (uint32_t)sdslen(key));
-        if(trnode == NULL){
-            log_error("ERROR: Get key %s backend node is NULL", key);
-            goto error;
-        }
-
-        msg = redis_generate_msg_with_key_value(ctx, mb, data_type, 
-            key, value, expiretime_type, expiretime_str);
-        if(msg == NULL){
-            log_error("ERROR: generate msg with key value failed");
-            goto error;
-        }
-
-        if(msg->frag_seq == NULL){
-            mbuf_count += listLength(msg->data);
-            ret = prepare_send_msg(srnode, msg, trnode);
-            if (ret != RMT_OK) {
-                goto error;
-            }
-            msg = NULL;
-        }else{
-            for(i = 0; i < msg->nfrag; i ++){
-                mbuf_count += listLength(msg->frag_seq[i]->data);
-                ret = prepare_send_msg(srnode, msg->frag_seq[i], trnode);
-                if (ret != RMT_OK) {
-                    goto error;
-                }
-                msg->frag_seq[i] = NULL;
-            }
-            
-            msg_put(msg);
-            msg_free(msg);
-            msg = NULL;
-        }
-
-        if(expiretime_type != RMT_TIME_NONE){
-            msg = redis_generate_msg_with_key_expire(ctx, mb, key, 
-                expiretime_type, expiretime_str);
-            if(msg == NULL){
-                log_error("ERROR: generate msg with key value failed");
+        if (rdb->handler != NULL) {
+            ret = rdb->handler(srnode, key, data_type, value, 
+                expiretime_type, expiretime, trgroup);
+            if (ret < 0) {
                 goto error;
             }
 
-            ret = prepare_send_msg(srnode, msg, trnode);
-            if(ret != RMT_OK){
-                goto error;
-            }
-
-            mbuf_count += listLength(msg->data);
-            msg = NULL;
+            mbuf_count += ret;
         }
         
         sdsfree(key);
         key = NULL;
         redis_value_destroy(value);
         value = NULL;
-        if(expiretime_str != NULL)
-        {
-            sdsfree(expiretime_str);
-            expiretime_str = NULL;
-        }
 
-        if(mbuf_count_max > 0 && mbuf_count >= mbuf_count_max){
+        if (mbuf_count_max > 0 && mbuf_count >= mbuf_count_max) {
             goto again;
         }
     }
 
-    if(rdbver >= 5 && rdb->update_cksum)
-    {
+    if (rdbver >= 5 && rdb->update_cksum) {
         uint64_t cksum, expected = rdb->cksum;
         if (redis_rdb_file_read(rdb,&cksum,8) != RMT_OK) goto eoferr;
 
@@ -5917,8 +5917,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     rdb->state = RDB_FILE_PARSE_END;
 
-    if(rdb->fp != NULL)
-    {
+    if (rdb->fp != NULL) {
         fclose(rdb->fp);
         rdb->fp = NULL;
     }
@@ -5961,24 +5960,6 @@ error:
 
     if (value != NULL) {
         redis_value_destroy(value);
-    }
-
-    if (msg != NULL) {
-        if (msg->frag_seq!= NULL) {
-            for (i = 0; i < msg->nfrag; i ++) {
-                if (msg->frag_seq[i] != NULL) {
-                    msg_put(msg->frag_seq[i]);
-                    msg_free(msg->frag_seq[i]);
-                    msg->frag_seq[i] = NULL;
-                }
-            }
-        }
-        msg_put(msg);
-        msg_free(msg);
-    }
-
-    if (expiretime_str != NULL) {
-        sdsfree(expiretime_str);
     }
 
     redis_delete_rdb_file(rdb, 0);

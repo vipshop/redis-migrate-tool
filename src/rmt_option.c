@@ -29,6 +29,9 @@
 #define RMT_OPTION_STEP_DEFAULT		    1
 #define RMT_OPTION_SOURCE_SAFE_DEFAULT	1
 
+#define RMT_OPTION_LISTEN_DEFAULT       "127.0.0.1:8888"
+#define RMT_OPTION_MAX_CLIENTS_DEFAULT  100
+
 static struct option long_options[] = {
     { "help",           no_argument,        NULL,   'h' },
     { "version",        no_argument,        NULL,   'V' },
@@ -129,6 +132,9 @@ rmt_set_default_options(struct instance *nci)
 
     nci->step = RMT_OPTION_STEP_DEFAULT;
     nci->source_safe = RMT_OPTION_SOURCE_SAFE_DEFAULT;
+
+    nci->listen = RMT_OPTION_LISTEN_DEFAULT;
+    nci->max_clients = RMT_OPTION_MAX_CLIENTS_DEFAULT;
 }
 
 r_status

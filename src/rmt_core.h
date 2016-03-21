@@ -122,6 +122,7 @@ typedef int err_t;     /* error type */
 #include <ziplist/ziplist.h>
 #include <intset/intset.h>
 
+#include <rmt_connect.h>
 #include <rmt_redis.h>
 
 #if (IOV_MAX > 128)
@@ -158,8 +159,11 @@ struct instance {
     int             thread_count;
     uint64_t        buffer_size;
 
-    int step;
-    int source_safe;
+    int             step;
+    int             source_safe;
+
+    char            *listen;
+    int             max_clients;
 };
 
 typedef struct rmtContext {
@@ -170,7 +174,7 @@ typedef struct rmtContext {
     group_type_t    source_type;        /* target redis type */
     group_type_t    target_type;        /* target redis type */
     
-    sds cmd;
+    sds cmd;    /* command string */
 
     int             thread_count;
     uint64_t        buffer_size;
@@ -185,6 +189,16 @@ typedef struct rmtContext {
     int source_safe;
 
     sds dir;
+
+    /* The fllow region used to client connect to migrate tool */
+    aeEventLoop *loop;
+    rmt_connect *proxy;
+    struct rmt_listen lt;
+    uint32_t max_ncconn;  /* max # client connections */
+    uint64_t ntotal_cconn;
+    uint32_t ncurr_cconn;
+    list clients;
+    mbuf_base *mb;
 }rmtContext;
 
 //for the read thread
@@ -231,6 +245,7 @@ redis_group *target_group_create(rmtContext *ctx);
 void target_group_destroy(redis_group *trgroup);
 
 void redis_migrate(rmtContext *ctx, int type);
+void redis_compare(rmtContext *ctx, int type);
 void group_state(rmtContext *ctx, int type);
 
 #endif
