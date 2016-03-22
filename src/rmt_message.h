@@ -122,19 +122,19 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_ZREVRANK )                                                                    \
     ACTION( REQ_REDIS_ZSCORE )                                                                      \
     ACTION( REQ_REDIS_ZUNIONSTORE )                                                                 \
-    ACTION( REQ_REDIS_ZSCAN)                                                                        \
-    ACTION( REQ_REDIS_EVAL )                   /* redis requests - eval */                          \
+    ACTION( REQ_REDIS_ZSCAN )                                                                       \
+    ACTION( REQ_REDIS_EVAL )                   /* redis requests - eval */                              \
     ACTION( REQ_REDIS_EVALSHA )                                                                     \
-    ACTION( REQ_REDIS_PING )                   /* redis requests - ping/quit */                     \
-    ACTION( REQ_REDIS_QUIT)                                                                         \
-    ACTION( REQ_REDIS_AUTH)                                                                         \
-    ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
+    ACTION( REQ_REDIS_PING )                   /* redis requests - ping/quit */                         \
+    ACTION( REQ_REDIS_INFO )                                                                        \
+    ACTION( REQ_REDIS_QUIT )                                                                        \
+    ACTION( REQ_REDIS_AUTH )                                                                        \
+    ACTION( RSP_REDIS_STATUS )                 /* redis response */                                   \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \
     ACTION( RSP_REDIS_BULK )                                                                        \
     ACTION( RSP_REDIS_MULTIBULK )                                                                   \
     ACTION( SENTINEL )                                                                              \
-
 
 #define DEFINE_ACTION(_name) MSG_##_name,
 typedef enum msg_type {

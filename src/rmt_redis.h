@@ -212,5 +212,7 @@ redis_node *redis_cluster_backend_node(redis_group *rgroup, uint8_t *key, uint32
 redis_node *redis_twem_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen);
 redis_node *redis_single_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen);
 
+int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len);
+
 #endif
 

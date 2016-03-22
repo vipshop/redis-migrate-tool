@@ -54,7 +54,11 @@ init_context(struct instance *rmti)
     rmt_ctx->source_safe = 0;
     rmt_ctx->dir = NULL;
 
+    rmt_ctx->rdatas = NULL;
+    rmt_ctx->wdatas = NULL;
+
     rmt_ctx->loop = NULL;
+    rmt_ctx->starttime = 0LL;
     rmt_ctx->proxy = NULL;
     rmt_ctx->max_ncconn = 0;
     rmt_ctx->ntotal_cconn = 0;
@@ -164,6 +168,8 @@ init_context(struct instance *rmti)
         destroy_context(rmt_ctx);
         return NULL;
     }
+
+    rmt_ctx->starttime = rmt_msec_now();
 
     if (cf->listen != CONF_UNSET_PTR) {
         ret = rmt_listen_init(&rmt_ctx->lt, cf->listen);

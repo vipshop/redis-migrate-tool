@@ -1,6 +1,182 @@
 
 #include <rmt_core.h>
 
+#include <sys/utsname.h>
+
+#define ERROR_RESPONSE_SYNTAX       "-ERR syntax error\r\n"
+#define ERROR_RESPONSE_NOTSUPPORT   "-ERR command not support\r\n"
+
+static uint64_t total_msgs_received(rmtContext *ctx)
+{
+    uint32_t i;
+    uint64_t count = 0;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        count += wdata->total_msgs_recv;
+    }
+
+    return count;
+}
+
+static uint64_t total_msgs_sent(rmtContext *ctx)
+{
+    uint32_t i;
+    uint64_t count = 0;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        count += wdata->total_msgs_sent;
+    }
+
+    return count;
+}
+
+static sds gen_migrate_info_string(rmtContext *ctx, sds section)
+{
+    sds info = sdsempty();
+    int allsections = 0, defsections = 0;
+    int sections = 0;
+
+    if (section == NULL) section = "default";
+    allsections = strcasecmp(section,"all") == 0;
+    defsections = strcasecmp(section,"default") == 0;
+
+    if (allsections || defsections || !strcasecmp(section,"server")) {
+        long long uptime = rmt_msec_now() - ctx->starttime;
+        static int call_uname = 1;
+        static struct utsname name;
+
+        if (sections++) info = sdscat(info,"\r\n");
+        
+        if (call_uname) {
+            /* Uname can be slow and is always the same output. Cache it. */
+            uname(&name);
+            call_uname = 0;
+        }
+        
+        info = sdscatprintf(info,
+            "# Server\r\n"
+            "version:%s\r\n"
+            "os:%s %s %s\r\n"
+            "multiplexing_api:%s\r\n"
+            "gcc_version:%d.%d.%d\r\n"
+            "process_id:%ld\r\n"
+            "tcp_port:%d\r\n"
+            "uptime_in_seconds:%lld\r\n"
+            "uptime_in_days:%lld\r\n"
+            "config_file:%s\r\n",
+            RMT_VERSION_STRING,
+            name.sysname, name.release, name.machine,
+            aeGetApiName(),
+#ifdef __GNUC__
+            __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+#else
+            0,0,0,
+#endif
+            (long) getpid(),
+            ctx->lt.port,
+            uptime/1000,
+            uptime/(3600*24*1000),
+            ctx->cf ? ctx->cf->fname : "");
+    }
+
+    /* Clients */
+    if (allsections || defsections || !strcasecmp(section,"clients")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Clients\r\n"
+            "connected_clients:%"PRIu32"\r\n"
+            "total_connections_received:%"PRIu64"\r\n",
+            conn_ncurr_cconn(ctx),
+            conn_ntotal_cconn(ctx));
+    }
+
+    /* Stats */
+    if (allsections || defsections || !strcasecmp(section,"stats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Stats\r\n"
+            "total_msgs_recv:%"PRIu64"\r\n"
+            "total_msgs_sent:%"PRIu64"\r\n",
+            total_msgs_received(ctx),
+            total_msgs_sent(ctx));
+    }
+
+    return info;
+}
+
+static int
+req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
+{
+    int ret;
+    struct msg *msg;
+    sds str;
+
+    msg = msg_get(ctx->mb, 0, req->kind); /* replay */
+    if (msg == NULL) {
+        return RMT_ENOMEM;
+    }
+
+    switch (req->type) {
+    case MSG_REQ_REDIS_PING:
+    {
+        str = sdsnew("+PONG\r\n");
+        ret = msg_append(msg, str, sdslen(str));
+        sdsfree(str);
+        break;
+    }
+    case MSG_REQ_REDIS_INFO:
+    {
+        struct keypos *kp;
+        sds section = NULL;
+        if (array_n(req->keys) > 1) {
+            str = sdsnew(ERROR_RESPONSE_SYNTAX);
+            ret = msg_append(msg, str, sdslen(str));
+            sdsfree(str);
+            break;
+        } else if (array_n(req->keys) == 1) {
+            kp = array_get(req->keys, 0);
+            section = sdsnewlen(kp->start, (size_t)(kp->end-kp->start));
+        }
+        
+        str = gen_migrate_info_string(ctx, section);
+        if (section) sdsfree(section);
+        ret = redis_append_bulk(msg, str, sdslen(str));
+        sdsfree(str);
+        break;
+    }
+    default:
+        str = sdsnew(ERROR_RESPONSE_NOTSUPPORT);
+        ret = msg_append(msg, str, sdslen(str));
+        sdsfree(str);
+        break;
+    }
+
+    if (ret != RMT_OK) {
+        log_error("ERROR: generate response for command %s to client %s failed.", 
+            msg_type_string(req->type), rmt_unresolve_peer_desc(conn->sd));
+        return RMT_ERROR;
+    }
+
+    req->peer = msg;
+    msg->peer = req;
+
+    listAddNodeTail(&conn->omsg_q, req);
+
+    ret = aeCreateFileEvent(ctx->loop, conn->sd, AE_WRITABLE, conn->send, conn);
+    if (ret != AE_OK) {
+        return RMT_ERROR;
+    }
+    conn->send_active = 1;
+    
+    return RMT_OK;
+}
+
 int rmt_listen_init(rmt_listen *lt, char *address)
 {
     int ret;
@@ -679,7 +855,7 @@ conn_recv_chain(rmtContext *ctx, rmt_connect *conn, struct msg *msg)
     size_t msize;
     ssize_t n;
 
-    mbuf = listLast(msg->data);
+    mbuf = listLastValue(msg->data);
     if (mbuf == NULL || mbuf_full(mbuf)) {
         mbuf = mbuf_get(msg->mb);
         if (mbuf == NULL) {
@@ -849,49 +1025,6 @@ req_recv_next(rmtContext *ctx, rmt_connect *conn, int alloc)
     }
 
     return msg;
-}
-
-static int
-req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
-{
-    int ret;
-    struct msg *msg;
-    sds str;
-
-    msg = msg_get(ctx->mb, 0, req->kind); /* replay */
-    if (msg == NULL) {
-        return RMT_ENOMEM;
-    }
-
-    switch (req->type) {
-    case MSG_REQ_REDIS_PING:
-        str = sdsnew("+PONG\r\n");
-        ret = msg_append(msg, str, sdslen(str));
-        sdsfree(str);
-        break;
-    default:
-        str = sdsnew("-Error Command not spport\r\n");
-        ret = msg_append(msg, str, sdslen(str));
-        sdsfree(str);
-        break;
-    }
-
-    if (ret != RMT_OK) {
-        return RMT_ERROR;
-    }
-
-    req->peer = msg;
-    msg->peer = req;
-
-    listAddNodeTail(&conn->omsg_q, req);
-
-    ret = aeCreateFileEvent(ctx->loop, conn->sd, AE_WRITABLE, conn->send, conn);
-    if (ret != AE_OK) {
-        return RMT_ERROR;
-    }
-    conn->send_active = 1;
-    
-    return RMT_OK;
 }
 
 void

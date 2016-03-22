@@ -11,16 +11,13 @@ _mbuf_get(mbuf_base *mb)
     struct mbuf *mbuf;
     uint8_t *buf;
 
-    if(mb == NULL)
-    {
+    if (mb == NULL) {
         return NULL;
     }
 
-    if(mb->free_mbufs)
-    {
+    if (mb->free_mbufs) {
         mbuf = mttlist_pop(mb->free_mbufs);
-        if(mbuf != NULL)
-        {
+        if(mbuf != NULL) {
             return mbuf;
         }
     }

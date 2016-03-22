@@ -190,8 +190,12 @@ typedef struct rmtContext {
 
     sds dir;
 
+    struct array *rdatas;   //read_thread_data
+    struct array *wdatas;   //write_thread_data
+
     /* The fllow region used to client connect to migrate tool */
     aeEventLoop *loop;
+    long long starttime; /* server start time in milliseconds */
     rmt_connect *proxy;
     struct rmt_listen lt;
     uint32_t max_ncconn;  /* max # client connections */
@@ -219,6 +223,9 @@ typedef struct write_thread_data{
     int finish_write_nodes;
     redis_group *trgroup;   //target group
     int notice_pipe[2];     //used to notice the read thread  to begin replication
+
+    volatile uint64_t total_msgs_recv;  //total msg received for this write thread
+    volatile uint64_t total_msgs_sent;  //total msg received for this write thread
 }write_thread_data;
 
 rmtContext *init_context(struct instance *nci);

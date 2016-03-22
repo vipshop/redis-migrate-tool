@@ -225,18 +225,15 @@ msg_ensure_mbuf(struct msg *msg, size_t len)
 
     node = listLast(msg->data);
     
-    if(node == NULL ||
-        mbuf_size(listNodeValue(node)) < len)
-    {
+    if (node == NULL ||
+        mbuf_size(listNodeValue(node)) < len) {
         mbuf = mbuf_get(mb);
         if (mbuf == NULL) {
             return NULL;
         }
 
         listAddNodeTail(msg->data, mbuf);
-    }
-    else
-    {
+    } else {
         mbuf = listNodeValue(node);
     }
 

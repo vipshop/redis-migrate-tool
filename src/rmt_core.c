@@ -63,6 +63,9 @@ static void write_thread_data_deinit(write_thread_data *wdata);
 static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 {
     int ret;
+    dictIterator *di;
+    dictEntry *de;
+    redis_node *trnode;
     
 	if (wdata == NULL) {
 		return RMT_ERROR;
@@ -76,6 +79,8 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->nodes = NULL;
     wdata->notice_pipe[0] = -1;
     wdata->notice_pipe[1] = -1;
+    wdata->total_msgs_recv = 0;
+    wdata->total_msgs_sent = 0;
 
 	wdata->loop = aeCreateEventLoop(1000);
     if (wdata->loop == NULL) {
@@ -94,6 +99,13 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
         log_error("ERROR: Target group create failed");
         goto error;
     }
+
+    di = dictGetSafeIterator(wdata->trgroup->nodes);
+    while ((de = dictNext(di)) != NULL) {
+        trnode = dictGetVal(de);
+        trnode->write_data = wdata;
+    }
+    dictReleaseIterator(di);
 
     ret = pipe(wdata->notice_pipe);
     if (ret < 0) {
@@ -1055,6 +1067,7 @@ static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mas
     int ret;
     redis_node *trnode = privdata;
     tcp_context *tc = trnode->tc;
+    write_thread_data *wdata = trnode->write_data;
     listNode *lnode_node, *lnode_msg, *lnode_mbuf;
     list send_msgl;                      /* send msg list */
     struct iovec *ciov, iov[RMT_IOV_MAX];
@@ -1207,6 +1220,7 @@ again:
                 msg->sent = 1;
                 listAddNodeTail(trnode->sent_data,msg);
             }
+            wdata->total_msgs_sent ++;
         }
     }
 
@@ -1355,6 +1369,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
 
     listAddNodeTail(trnode->send_data, msg);
     trgroup->msg_send_num ++;
+    write_data->total_msgs_recv ++;
     log_debug(LOG_DEBUG, "sended msgs: %lld", 
         trgroup->msg_send_num);
     
@@ -2166,6 +2181,9 @@ void redis_migrate(rmtContext *ctx, int type)
             threads_hold_nodes_count);
         goto done;
     }
+
+    ctx->rdatas = read_datas;
+    ctx->wdatas = write_datas;
 
     //Run the read job
     for(i = 0; i < read_threads_count; i ++){

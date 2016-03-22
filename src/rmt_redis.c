@@ -2319,6 +2319,24 @@ redis_argeval(struct msg *r)
 }
 
 /*
+ * Return true, if the redis command accepts 0 or more keys,
+ * otherwise return false
+ */
+static int
+redis_argzormore(struct msg *r)
+{
+    switch (r->type) {
+    case MSG_REQ_REDIS_INFO:
+        return 1;
+
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+/*
  * Reference: http://redis.io/topics/protocol
  *
  * Redis >= 1.2 uses the unified protocol to send requests to the Redis
@@ -2633,6 +2651,12 @@ redis_parse_req(struct msg *r)
 
                 if (str4icmp(m, 'p', 'i', 'n', 'g')) {
                     r->type = MSG_REQ_REDIS_PING;
+                    r->noforward = 1;
+                    break;
+                }
+
+                if (str4icmp(m, 'i', 'n', 'f', 'o')) {
+                    r->type = MSG_REQ_REDIS_INFO;
                     r->noforward = 1;
                     break;
                 }
@@ -3083,6 +3107,11 @@ redis_parse_req(struct msg *r)
                     goto done;
                 } else if (redis_argeval(r)) {
                     state = SW_ARG1_LEN;
+                } else if (redis_argzormore(r)) {
+                    if (r->narg == 1) {
+                        goto done;
+                    }
+                    state = SW_KEY_LEN;
                 } else {
                     state = SW_KEY_LEN;
                 }
@@ -3198,6 +3227,11 @@ redis_parse_req(struct msg *r)
                     }
                     state = SW_ARG1_LEN;
                 } else if (redis_argx(r)) {
+                    if (r->rnarg == 0) {
+                        goto done;
+                    }
+                    state = SW_KEY_LEN;
+                } else if (redis_argzormore(r)) {
                     if (r->rnarg == 0) {
                         goto done;
                     }
@@ -4391,6 +4425,35 @@ static int redis_append_key(struct msg *r, uint8_t *key, uint32_t keylen)
     }
     mbuf_copy(mbuf, (uint8_t *)CRLF, CRLF_LEN);
     r->mlen += (uint32_t)CRLF_LEN;
+
+    return RMT_OK;
+}
+
+int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len)
+{
+    int ret;
+    uint32_t len;
+    struct mbuf *mbuf;
+    uint8_t printbuf[32];
+
+    /* 1. str_len */
+    len = (uint32_t)rmt_snprintf(printbuf, sizeof(printbuf), "$%d\r\n", str_len);
+    ret = msg_append_full(r, printbuf, len);
+    if (ret != RMT_OK) {
+        return RMT_ENOMEM;
+    }
+
+    /* 2. key */
+    ret = msg_append_full(r, str, str_len);
+    if (ret != RMT_OK) {
+        return RMT_ENOMEM;
+    }
+
+    /* 3. CRLF */
+    ret = msg_append_full(r, CRLF, CRLF_LEN);
+    if (ret != RMT_OK) {
+        return RMT_ENOMEM;
+    }
 
     return RMT_OK;
 }
