@@ -77,7 +77,7 @@ void conn_put(rmt_connect *conn);
 
 int proxy_listen(struct rmtContext *ctx, rmt_connect *p);
 
-int proxy_recv(aeEventLoop *el, int fd, void *privdata, int mask);
+void proxy_recv(aeEventLoop *el, int fd, void *privdata, int mask);
 void proxy_ref(rmt_connect *conn, void *owner);
 void proxy_unref(rmt_connect *conn);
 void proxy_close(struct rmtContext *ctx, rmt_connect *conn);

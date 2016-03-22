@@ -271,6 +271,7 @@ _rmt_strrchr(uint8_t *p, uint8_t *start, uint8_t c)
 }
 
 uint64_t size_string_to_integer_byte(char *size, int size_len);
+void integer_byte_to_size_string(char *s, uint64_t n);
 
 ssize_t rmt_sync_write(int fd, const char *ptr, ssize_t size, long long timeout);
 ssize_t rmt_sync_read(int fd, char *ptr, ssize_t size, long long timeout);

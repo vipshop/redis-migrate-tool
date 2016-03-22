@@ -753,6 +753,37 @@ size_string_to_integer_byte(char *size, int size_len)
     return num;
 }
 
+/* Convert an amount of bytes into a human readable string in the form
+ * of 100B, 2G, 100M, 4K, and so forth. */
+void integer_byte_to_size_string(char *s, uint64_t n)
+{
+    double d;
+
+    if (n < 1024) {
+        /* Bytes */
+        sprintf(s,"%"PRIu64"B",n);
+        return;
+    } else if (n < (1024*1024)) {
+        d = (double)n/(1024);
+        sprintf(s,"%.2fK",d);
+    } else if (n < (1024ULL*1024*1024)) {
+        d = (double)n/(1024*1024);
+        sprintf(s,"%.2fM",d);
+    } else if (n < (1024ULL*1024*1024*1024)) {
+        d = (double)n/(1024ULL*1024*1024);
+        sprintf(s,"%.2fG",d);
+    } else if (n < (1024ULL*1024*1024*1024*1024)) {
+        d = (double)n/(1024ULL*1024*1024*1024);
+        sprintf(s,"%.2fT",d);
+    } else if (n < (1024ULL*1024*1024*1024*1024*1024)) {
+        d = (double)n/(1024ULL*1024*1024*1024*1024);
+        sprintf(s,"%.2fP",d);
+    } else {
+        /* Let's hope we never need this */
+        sprintf(s,"%"PRIu64"B",n);
+    }
+}
+
 
 /* Write the specified payload to 'fd'. If writing the whole payload will be
  * done within 'timeout' milliseconds the operation succeeds and 'size' is

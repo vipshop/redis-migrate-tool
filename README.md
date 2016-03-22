@@ -60,7 +60,7 @@ Config file has three parts: source, target and common.
 
 ### common:
 + **listen**: The listening address and port (name:port or ip:port). Defaults to 127.0.0.1:8888.
-+ **max_clients**: The max clients count for the listen port. Defaults to 200.
++ **max_clients**: The max clients count for the listen port. Defaults to 100.
 + **threads**: The max threads count can be used by redis-migrate-tool. Defaults to the cpu core count.
 + **step**: The step for parse request. The higher the number, the more quickly to migrate, but the more memory used. Defaults to 1.
 + **mbuf_size**: Mbuf size for request. Defaults to 512.
@@ -140,6 +140,72 @@ Migrate data from rdb file to redis cluster.
 	mbuf_size: 512
 	source_safe: false
 
+## STATUS
+
+You can use redis-cli to connect with redis-migrate-tool. The listening address and port can be setted at common config.
+
+### info command
+
+For example, you try the **info** command:
+	
+	$redis-cli -h 127.0.0.1 -p 8888
+    127.0.0.1:8888> info
+	# Server
+	version:0.1.0
+	os:Linux 2.6.32-573.12.1.el6.x86_64 x86_64
+	multiplexing_api:epoll
+	gcc_version:4.4.7
+	process_id:9199
+	tcp_port:8888
+	uptime_in_seconds:1662
+	uptime_in_days:0
+	config_file:rmt.conf
+	
+	# Clients
+	connected_clients:1
+	max_clients_limit:100
+	total_connections_received:3
+	
+	# Stats
+	all_rdb_parsed:1
+	total_msgs_recv:7753587
+	total_msgs_sent:7753587
+	total_net_input_bytes:234636318
+	total_net_output_bytes:255384129
+	total_net_input_bytes_human:223.77M
+	total_net_output_bytes_human:243.55M
+	127.0.0.1:8888>
+	
+**info** command response instruction:
+	
+#### Server:
+
++ **version**: The redis-migrate-tool version number.
++ **os**: The os uname.
++ **multiplexing_api**: Multiplexing API.
++ **gcc_version**: Gcc version.
++ **process_id**: The process id of the redis-migrate-tool.
++ **tcp_port**: The tcp port redis-migrate-tool listening.
++ **uptime_in_seconds**: Seconds the redis-migrate-tool running.
++ **uptime_in_days**: Days the redis-migrate-tool running.
++ **config_file**: The config file name for the redis-migrate-tool.
+
+#### Clients:
+
++ **connected_clients**: The count of clients that connected at present.
++ **max_clients_limit**: The max number of clients that allows to accept at the same time.
++ **total_connections_received**: The total count of connections that received so far.
+
+#### Stats:
+
++ **all_rdb_parsed**: Whether the all the rdb of the nodes in source group parsed finished.
++ **total_msgs_recv**: The total count of messages that had received from the source group.
++ **total_msgs_sent**: The total count of messages that had sent to the target group.
++ **total_net_input_bytes**: The total count of input bytes that had received from the source group.
++ **total_net_output_bytes**: The total count of output bytes that had sent to the target group.
++ **total_net_input_bytes_human**: Same as the **total_net_input_bytes**, but convert into human readable.
++ **total_net_output_bytes_human**: Same as the **total_net_output_bytes**, but convert into human readable.
+	
 ## License
 
 Copyright 2012 Deep, Inc.

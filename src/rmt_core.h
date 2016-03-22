@@ -212,6 +212,7 @@ typedef struct read_thread_data{
     list *nodes_data;   //type : source redis_node.
     int nodes_count;    //this loop thread is responsible for.
     int finish_read_nodes;
+    volatile uint64_t stat_total_net_input_bytes;    //total bytes received from source group for this read thread
 }read_thread_data;
 
 //for the write thread
@@ -224,8 +225,10 @@ typedef struct write_thread_data{
     redis_group *trgroup;   //target group
     int notice_pipe[2];     //used to notice the read thread  to begin replication
 
-    volatile uint64_t total_msgs_recv;  //total msg received for this write thread
-    volatile uint64_t total_msgs_sent;  //total msg received for this write thread
+    volatile uint64_t stat_total_msgs_recv;  //total msg received for this write thread
+    volatile uint64_t stat_total_msgs_sent;  //total msg received for this write thread
+    volatile uint64_t stat_total_net_output_bytes;    //total bytes sent to target group for this write thread
+    volatile int stat_all_rdb_parsed;   //0 or 1. 1: all the rdb parse finished for this write thread
 }write_thread_data;
 
 rmtContext *init_context(struct instance *nci);

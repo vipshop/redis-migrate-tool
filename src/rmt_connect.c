@@ -6,6 +6,24 @@
 #define ERROR_RESPONSE_SYNTAX       "-ERR syntax error\r\n"
 #define ERROR_RESPONSE_NOTSUPPORT   "-ERR command not support\r\n"
 
+static int all_rdb_parse_finished(rmtContext *ctx)
+{
+    uint32_t i;
+    int finished = 1;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        if (!wdata->stat_all_rdb_parsed) {
+            finished = 0;
+            break;
+        }
+    }
+
+    return finished;
+}
+
 static uint64_t total_msgs_received(rmtContext *ctx)
 {
     uint32_t i;
@@ -15,7 +33,7 @@ static uint64_t total_msgs_received(rmtContext *ctx)
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
-        count += wdata->total_msgs_recv;
+        count += wdata->stat_total_msgs_recv;
     }
 
     return count;
@@ -30,10 +48,40 @@ static uint64_t total_msgs_sent(rmtContext *ctx)
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
-        count += wdata->total_msgs_sent;
+        count += wdata->stat_total_msgs_sent;
     }
 
     return count;
+}
+
+static uint64_t total_bytes_received(rmtContext *ctx)
+{
+    uint32_t i;
+    uint64_t bytes = 0;
+    struct array *rdatas = ctx->rdatas;
+    read_thread_data *rdata;
+
+    for (i = 0; i < array_n(rdatas); i++) {
+        rdata = array_get(rdatas, i);
+        bytes += rdata->stat_total_net_input_bytes;
+    }
+
+    return bytes;
+}
+
+static uint64_t total_bytes_sent(rmtContext *ctx)
+{
+    uint32_t i;
+    uint64_t bytes = 0;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        bytes += wdata->stat_total_net_output_bytes;
+    }
+
+    return bytes;
 }
 
 static sds gen_migrate_info_string(rmtContext *ctx, sds section)
@@ -91,20 +139,40 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds section)
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%"PRIu32"\r\n"
+            "max_clients_limit:%"PRIu32"\r\n"
             "total_connections_received:%"PRIu64"\r\n",
             conn_ncurr_cconn(ctx),
+            ctx->max_ncconn,
             conn_ntotal_cconn(ctx));
     }
 
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
+        uint64_t total_input_bytes, total_output_bytes;
+        char total_input_bytes_human[64], total_output_bytes_human[64];
+
+        total_input_bytes = total_bytes_received(ctx);
+        total_output_bytes = total_bytes_sent(ctx);
+        integer_byte_to_size_string(total_input_bytes_human, total_input_bytes);
+        integer_byte_to_size_string(total_output_bytes_human, total_output_bytes);
+        
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
+            "all_rdb_parsed:%d\r\n"
             "total_msgs_recv:%"PRIu64"\r\n"
-            "total_msgs_sent:%"PRIu64"\r\n",
+            "total_msgs_sent:%"PRIu64"\r\n"
+            "total_net_input_bytes:%"PRIu64"\r\n"
+            "total_net_output_bytes:%"PRIu64"\r\n"
+            "total_net_input_bytes_human:%s\r\n"
+            "total_net_output_bytes_human:%s\r\n",
+            all_rdb_parse_finished(ctx),
             total_msgs_received(ctx),
-            total_msgs_sent(ctx));
+            total_msgs_sent(ctx),
+            total_input_bytes,
+            total_output_bytes,
+            total_input_bytes_human,
+            total_output_bytes_human);
     }
 
     return info;
@@ -126,7 +194,7 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
     case MSG_REQ_REDIS_PING:
     {
         str = sdsnew("+PONG\r\n");
-        ret = msg_append(msg, str, sdslen(str));
+        ret = msg_append(msg, (uint8_t *)str, sdslen(str));
         sdsfree(str);
         break;
     }
@@ -136,7 +204,7 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
         sds section = NULL;
         if (array_n(req->keys) > 1) {
             str = sdsnew(ERROR_RESPONSE_SYNTAX);
-            ret = msg_append(msg, str, sdslen(str));
+            ret = msg_append(msg, (uint8_t *)str, sdslen(str));
             sdsfree(str);
             break;
         } else if (array_n(req->keys) == 1) {
@@ -146,13 +214,13 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
         
         str = gen_migrate_info_string(ctx, section);
         if (section) sdsfree(section);
-        ret = redis_append_bulk(msg, str, sdslen(str));
+        ret = redis_append_bulk(msg, (uint8_t *)str, sdslen(str));
         sdsfree(str);
         break;
     }
     default:
         str = sdsnew(ERROR_RESPONSE_NOTSUPPORT);
-        ret = msg_append(msg, str, sdslen(str));
+        ret = msg_append(msg, (uint8_t *)str, sdslen(str));
         sdsfree(str);
         break;
     }
@@ -606,7 +674,7 @@ proxy_accept(rmtContext *ctx, rmt_connect *p)
     return RMT_OK;
 }
 
-int
+void
 proxy_recv(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     int ret;
@@ -625,11 +693,9 @@ proxy_recv(aeEventLoop *el, int fd, void *privdata, int mask)
     do {
         ret = proxy_accept(ctx, p);
         if (ret != RMT_OK) {
-            return ret;
+            return;
         }
     } while (p->recv_ready);
-
-    return RMT_OK;
 }
 
 void
@@ -784,7 +850,7 @@ conn_msg_parsed(rmtContext *ctx, rmt_connect *conn, struct msg *msg)
         mbuf_put(nbuf);
         return RMT_ENOMEM;
     }
-    listAddNodeTail(nmsg, nbuf);
+    listAddNodeTail(nmsg->data, nbuf);
     nmsg->pos = nbuf->pos;
 
     /* update length of current (msg) and new message (nmsg) */
@@ -974,7 +1040,6 @@ req_put(struct msg *msg)
 struct msg *
 req_recv_next(rmtContext *ctx, rmt_connect *conn, int alloc)
 {
-    listNode *lnode;
     struct msg *msg;
 
     ASSERT(conn->client);
@@ -1053,9 +1118,8 @@ req_recv_done(rmtContext *ctx, rmt_connect *conn, struct msg *msg,
 static int
 conn_send_chain(rmtContext *ctx, rmt_connect *conn, struct msg *msg)
 {
-    list send_msgq;            /* send msg q */
-    struct msg *nmsg;                    /* next msg */
-    struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
+    list send_msgq;                      /* send msg q */
+    struct mbuf *mbuf;                   /* current mbuf */
     size_t mlen;                         /* current mbuf data length */
     struct iovec *ciov, iov[RMT_IOV_MAX]; /* current iovec */
     struct array sendv;                  /* send iovec */
@@ -1197,12 +1261,12 @@ client_send(aeEventLoop *el, int fd, void *privdata, int mask)
         msg = conn->send_next(ctx, conn);
         if (msg == NULL) {
             /* nothing to send */
-            return;
+            goto done;
         }
 
         ret = conn_send_chain(ctx, conn, msg);
         if (ret != RMT_OK) {
-            return;
+            goto done;
         }
 
     } while (conn->send_ready);
@@ -1219,7 +1283,6 @@ done:
 struct msg *
 rsp_send_next(rmtContext *ctx, rmt_connect *conn)
 {
-    int ret;
     listNode *lnode;
     struct msg *msg, *pmsg; /* response and it's peer request */
 
@@ -1380,5 +1443,7 @@ int proxy_begin(rmtContext *ctx)
     }
 
     ctx->proxy = p;
+
+    return RMT_OK;
 }
 

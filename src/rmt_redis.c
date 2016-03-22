@@ -1256,7 +1256,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
     ssize_t nread;
     redis_node *srnode = privdata;
     redis_group *srgroup = srnode->owner;
-    read_thread_data *read_data = srnode->read_data;
+    read_thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     tcp_context *tc = srnode->tc;
     
@@ -1265,7 +1265,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
     
-    ASSERT(el == read_data->loop);
+    ASSERT(el == rdata->loop);
     ASSERT(fd == tc->sd);
 
     if(srnode->mbuf_in == NULL){
@@ -1303,6 +1303,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
             srnode->addr);
         goto error;
     } else {
+        rdata->stat_total_net_input_bytes += (uint64_t)nread;
         rr->reploff += nread;
         srnode->mbuf_in->last += nread;
         mttlist_push(srnode->cmd_data, srnode->mbuf_in);
@@ -1479,7 +1480,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     ssize_t nread, readlen;
     off_t left;
     redis_node *srnode = privdata;
-    read_thread_data *read_data = srnode->read_data;
+    read_thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
     char *eofmark = rr->eofmark;
@@ -1493,7 +1494,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
     
-    ASSERT(el == read_data->loop);
+    ASSERT(el == rdata->loop);
     ASSERT(fd == srnode->tc->sd);
 
     /* Static vars used to hold the EOF mark, and the last bytes received
@@ -1588,6 +1589,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
 
     ASSERT((ssize_t)mbuf_size >= nread);
 
+    rdata->stat_total_net_input_bytes += (uint64_t)nread;
     mbuf->last += nread;
     if (mbuf_size(mbuf) == 0) {
         rmtRedisRdbDataPost(srnode);
@@ -1653,7 +1655,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         long long now;
         now = rmt_msec_now();
         
-        aeDeleteFileEvent(read_data->loop, fd, AE_READABLE);
+        aeDeleteFileEvent(rdata->loop, fd, AE_READABLE);
         log_notice("MASTER <-> SLAVE sync: RDB data for node[%s] is received, used: %lld s", 
             srnode->addr, (now - srnode->timestamp)/1000);
         srnode->timestamp = now;
@@ -5812,8 +5814,8 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     int ret;
     uint32_t i;
     redis_rdb *rdb = srnode->rdb;
-    write_thread_data *write_data = srnode->write_data;
-    redis_group *trgroup = write_data->trgroup;
+    write_thread_data *wdata = srnode->write_data;
+    redis_group *trgroup = wdata->trgroup;
     char buf[20];
     size_t len;
     uint32_t dbid;
@@ -6007,7 +6009,8 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         rmt_write(srnode->next->notice_read_pipe[1], " ", 1);
     } else {
         log_notice("All nodes' rdb file parsed finished for this write thread(%lu).",
-            write_data->thread_id);
+            wdata->thread_id);
+        wdata->stat_all_rdb_parsed = 1;
     }
 
     return RMT_OK;

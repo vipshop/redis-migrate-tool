@@ -20,6 +20,7 @@ static int read_thread_data_init(read_thread_data *rdata)
     rdata->nodes_count = 0;
     rdata->loop = NULL;
     rdata->nodes_data = NULL;
+    rdata->stat_total_net_input_bytes = 0;
 
     rdata->loop = aeCreateEventLoop(1000);
     if (rdata->loop == NULL) {
@@ -79,8 +80,10 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->nodes = NULL;
     wdata->notice_pipe[0] = -1;
     wdata->notice_pipe[1] = -1;
-    wdata->total_msgs_recv = 0;
-    wdata->total_msgs_sent = 0;
+    wdata->stat_total_msgs_recv = 0;
+    wdata->stat_total_msgs_sent = 0;
+    wdata->stat_total_net_output_bytes = 0;
+    wdata->stat_all_rdb_parsed = 0;
 
 	wdata->loop = aeCreateEventLoop(1000);
     if (wdata->loop == NULL) {
@@ -1162,6 +1165,8 @@ again:
 
     nsent = n > 0 ? (size_t)n : 0;
 
+    wdata->stat_total_net_output_bytes += nsent;
+
     log_debug(LOG_DEBUG, "%u bytes has be sent", nsent);
 
     while((lnode_node = listFirst(&send_msgl)) != NULL){
@@ -1220,7 +1225,7 @@ again:
                 msg->sent = 1;
                 listAddNodeTail(trnode->sent_data,msg);
             }
-            wdata->total_msgs_sent ++;
+            wdata->stat_total_msgs_sent ++;
         }
     }
 
@@ -1369,7 +1374,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
 
     listAddNodeTail(trnode->send_data, msg);
     trgroup->msg_send_num ++;
-    write_data->total_msgs_recv ++;
+    write_data->stat_total_msgs_recv ++;
     log_debug(LOG_DEBUG, "sended msgs: %lld", 
         trgroup->msg_send_num);
     
