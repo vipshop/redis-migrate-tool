@@ -208,8 +208,6 @@ char *msg_type_string(msg_type_t type);
 struct msg *msg_get(mbuf_base *mb, int request, int type);
 void msg_free(struct msg *msg);
 void msg_put(struct msg *msg);
-void msg_dump(struct msg *msg, int level);
-void msg_dump_all(struct msg *msg, int level);
 int msg_empty(struct msg *msg);
 uint64_t msg_gen_frag_id(void);
 uint32_t msg_backend_idx(struct msg *msg, uint8_t *key, uint32_t keylen);
@@ -231,18 +229,31 @@ int msg_used_up(void);
 int msg_used_down(void);
 #endif
 
-int msg_check(struct rmtContext *ctx, struct msg *msg, int panic);
+int _msg_check(const char *file, int line, struct rmtContext *ctx, struct msg *msg, int panic);
+void _msg_dump(const char *file, int line, struct msg *msg, int level);
 
 #ifdef RMT_ASSERT_PANIC
-#define MSG_CHECK(_c, _x) do {      \
-    msg_check(_c, _x, 1);           \
+#define MSG_CHECK(_c, _x) do {                          \
+    _msg_check(__FILE__, __LINE__, _c, _x, 1);           \
 } while (0)
 #elif RMT_ASSERT_LOG
 #define MSG_CHECK(_c, _x) do {      \
-    msg_check(_c, _x, 0);           \
+    _msg_check(__FILE__, __LINE__, _c, _x, 0);           \
 } while (0)
 #else
 #define MSG_CHECK(_c, _x)
 #endif
+
+#ifdef RMT_ASSERT_PANIC || ifdef RMT_ASSERT_LOG)
+#define MSG_DUMP(_m, _l) do {                           \
+    _msg_dump(__FILE__, __LINE__, _m, _l);              \
+} while (0)
+#else
+#define MSG_DUMP(_m, _l)
+#endif
+
+#define MSG_DUMP_ALL(_m, _l) do {                       \
+    _msg_dump(__FILE__, __LINE__, _m, _l);              \
+} while (0)
 
 #endif

@@ -194,80 +194,6 @@ msg_put(struct msg *msg)
     msg->mb = NULL;
 }
 
-#ifdef RMT_DEBUG_LOG
-void msg_dump(struct msg *msg, int level)
-{
-    struct mbuf *mbuf;
-    listIter *iter;
-    listNode *node;
-    uint8_t *p, *q;
-    long int len;
-
-    if (log_loggable(level) == 0) {
-        return;
-    }
-
-    loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d "
-         "(err %d) kind %d result %d mbuf_count %u", 
-         msg->id, msg->request, msg->mlen, 
-         msg->type, msg->err, msg->kind, 
-         msg->result, listLength(msg->data));
-
-
-    iter = listGetIterator(msg->data, AL_START_HEAD);
-    while((node = listNext(iter)) != NULL) {
-        mbuf = listNodeValue(node);
-        
-        p = mbuf->start;
-        q = mbuf->last;
-        len = q - p;
-
-        loga_hexdump(p, len, "mbuf [%p] with %ld bytes of data", p, len);
-    }
-
-    listReleaseIterator(iter);
-}
-#else
-void
-msg_dump(struct msg *msg, int level)
-{
-    RMT_NOTUSED(msg);
-    RMT_NOTUSED(level);
-}
-#endif
-
-void msg_dump_all(struct msg *msg, int level)
-{
-    struct mbuf *mbuf;
-    listIter *iter;
-    listNode *node;
-    uint8_t *p, *q;
-    long int len;
-
-    if (log_loggable(level) == 0) {
-        return;
-    }
-
-    loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d "
-         "(err %d) kind %d result %d mbuf_count %u", 
-         msg->id, msg->request, msg->mlen, 
-         msg->type, msg->err, msg->kind, 
-         msg->result, listLength(msg->data));
-
-    iter = listGetIterator(msg->data, AL_START_HEAD);
-    while((node = listNext(iter)) != NULL) {
-        mbuf = listNodeValue(node);
-        
-        p = mbuf->start;
-        q = mbuf->last;
-        len = q - p;
-
-        loga_hexdump(p, len, "mbuf [%p] with %ld bytes of data", p, len);
-    }
-
-    listReleaseIterator(iter);
-}
-
 char*
 msg_type_string(msg_type_t type)
 {
@@ -518,12 +444,13 @@ msg_cmp_str(struct msg *msg, const uint8_t *str, uint32_t len)
     return 0;
 }
 
-int msg_check(rmtContext *ctx, struct msg *msg, int panic)
+int _msg_check(const char *file, int line, rmtContext *ctx, struct msg *msg, int panic)
 {
     struct mbuf *mbuf;
     listIter *iter;
     listNode *node;
     uint32_t total_mbuf_len = 0;
+    int err = 0;
     
     if (msg == NULL) {
         return RMT_ERROR;
@@ -533,33 +460,80 @@ int msg_check(rmtContext *ctx, struct msg *msg, int panic)
     iter = listGetIterator(msg->data, AL_START_HEAD);
     while ((node = listNext(iter)) != NULL) {
         mbuf = listNodeValue(node);
-        total_mbuf_len += mbuf_storage_length(mbuf);
+        total_mbuf_len += mbuf_length(mbuf);
+
+        if (mbuf->pos < mbuf->start) {
+            _log(file, line, 0, "MSG CHECK Error: mbuf->pos(%p) < mbuf->start(%p)", 
+                mbuf->pos, mbuf->start);
+            err = 1;
+        }
+
+        if (mbuf->pos > mbuf->last) {
+            _log(file, line, 0, "MSG CHECK Error: mbuf->pos(%p) > mbuf->last(%p)", 
+                mbuf->pos, mbuf->last);
+            err = 1;
+        }
     }
     listReleaseIterator(iter);
     
     if (msg->mlen != total_mbuf_len) {
-        log_error("MSG CHECK Error: msg->mlen(%u) != total_mbuf_len(%u)", 
+        _log(file, line, 0, "MSG CHECK Error: msg->mlen(%u) != total_mbuf_len(%u)", 
             msg->mlen, total_mbuf_len);
-        goto error;
+        err = 1;
     }
 
     if (msg->request == 1) {
         if (msg->noreply != ctx->noreply) {
-            log_error("MSG CHECK Error: msg->noreply(%u) != ctx->noreply(%d)", 
+            _log(file, line, 0, "MSG CHECK Error: msg->noreply(%u) != ctx->noreply(%d)", 
                 msg->noreply, ctx->noreply);
-            goto error;
+            err = 1;
         }
     }
+
+    if (err) goto error;
     
     return RMT_OK;
     
 error:
-    msg_dump(msg, LOG_ERR);
+    MSG_DUMP(msg, LOG_ERR);
     if (panic) {
         rmt_stacktrace(1);
         abort();
     }
     return RMT_ERROR;
+}
+
+void _msg_dump(const char *file, int line, struct msg *msg, int level)
+{
+    struct mbuf *mbuf;
+    listIter *iter;
+    listNode *node;
+    uint8_t *p, *q;
+    long int len;
+
+    if (log_loggable(level) == 0) {
+        return;
+    }
+
+    _log(file, line, 0, "msg dump id %"PRIu64" request %d len %"PRIu32" type %d "
+         "(err %d) kind %d result %d mbuf_count %u keys_count %u", 
+         msg->id, msg->request, msg->mlen, 
+         msg->type, msg->err, msg->kind, 
+         msg->result, listLength(msg->data), 
+         msg->keys == NULL?0:array_n(msg->keys));
+
+
+    iter = listGetIterator(msg->data, AL_START_HEAD);
+    while((node = listNext(iter)) != NULL) {
+        mbuf = listNodeValue(node);
+        
+        p = mbuf->pos;
+        q = mbuf->last;
+        len = q - p;
+        _log(file, line, 0, "mbuf [%p] with %ld bytes of data", p, len);
+        _log_hexdump(file, line, p, len, NULL);
+    }
+    listReleaseIterator(iter);
 }
 
 #ifdef RMT_MEMORY_TEST

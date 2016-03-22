@@ -1160,7 +1160,7 @@ again:
             if (msg->mlen == 0) {
                 //msg send done?
                 log_debug(LOG_NOTICE, "");
-                msg_dump(msg,LOG_NOTICE);
+                MSG_DUMP(msg,LOG_NOTICE);
                 NOT_REACHED();
             }
             
@@ -1367,6 +1367,7 @@ static int prepare_send_data(redis_node *srnode)
     struct msg *msg, *sub_msg;
     struct keypos *kp;
     write_thread_data *write_data = srnode->write_data;
+    rmtContext *ctx = srnode->ctx;
     redis_group *trgroup = write_data->trgroup;
     list frag_msgl;
     uint32_t slots;
@@ -1389,6 +1390,8 @@ static int prepare_send_data(redis_node *srnode)
     slots = array_n(trgroup->route);
     ASSERT(slots > 0);
 
+    MSG_CHECK(ctx, msg);
+
     //If this msg contain only one key, just send it.
     if (array_n(msg->keys) == 1) {
         kp = array_get(msg->keys, 0);
@@ -1406,7 +1409,6 @@ static int prepare_send_data(redis_node *srnode)
     }
 
     if (listLength(&frag_msgl) == 0) {
-
         kp = array_get(msg->keys, 0);
         trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
         if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
@@ -1457,7 +1459,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
         return RMT_ERROR;
     }
 
-    msg_dump(resp, LOG_DEBUG);
+    MSG_DUMP(resp, LOG_DEBUG);
 
     ASSERT(trnode->msg_rcv == resp);
     
@@ -1664,7 +1666,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
             msg->mlen += mbuf_length(mbuf_f);
         }
 
-        msg_dump(msg, LOG_VVERB);
+        MSG_DUMP(msg, LOG_VVERB);
         msg->parser(msg);
 
         if(msg->result == MSG_PARSE_OK){
@@ -1705,7 +1707,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 msg_type_string(msg->type));
             continue;
         }else{
-            msg_dump_all(msg, LOG_NOTICE);
+            MSG_DUMP_ALL(msg, LOG_NOTICE);
             mbuf_list_dump_all(srnode->piece_data, LOG_NOTICE);
             msg_put(srnode->msg);
             msg_free(srnode->msg);

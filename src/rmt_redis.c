@@ -4110,7 +4110,7 @@ int redis_response_check(struct msg *r)
     if(resp->type == MSG_RSP_REDIS_ERROR){
         log_warn("Response for %s is error: ",
             msg_type_string(r->type));
-        msg_dump_all(resp, LOG_WARN);
+        MSG_DUMP_ALL(resp, LOG_WARN);
         goto error;
     }
 
@@ -4141,7 +4141,7 @@ int redis_response_check(struct msg *r)
         break;
     }
     
-    msg_dump(resp, LOG_VVERB);
+    MSG_DUMP(resp, LOG_VVERB);
     
     msg_put(r);
     msg_free(r);
@@ -4181,20 +4181,18 @@ error:
  * */
 static int redis_copy_bulk(struct msg *dst, struct msg *src)
 {
-    struct mbuf *mbuf, *nbuf;
+    int ret;
+    struct mbuf *mbuf;
     listNode *node, *nnode;
     uint8_t *p;
     uint32_t len = 0;
     uint32_t bytes = 0;
-    int status;
-
+    
     for (node = listFirst(src->data); 
         node != NULL;
-        node = listFirst(src->data))
-    {
+        node = listFirst(src->data)) {
         mbuf = listNodeValue(node);
-        if(mbuf == NULL || !mbuf_empty(mbuf))
-        {
+        if (mbuf == NULL || !mbuf_empty(mbuf)) {
             break;
         }
 
@@ -4203,14 +4201,12 @@ static int redis_copy_bulk(struct msg *dst, struct msg *src)
     }
 
     node = listFirst(src->data);
-    if(node == NULL)
-    {
+    if (node == NULL) {
         return RMT_ERROR;
     }
     
     mbuf = listNodeValue(node);
-    if(mbuf == NULL)
-    {
+    if (mbuf == NULL) {
         return RMT_ERROR;
     }
 
@@ -4235,39 +4231,38 @@ static int redis_copy_bulk(struct msg *dst, struct msg *src)
     bytes = len;
 
     /* copy len bytes to dst */
-    for (; mbuf;) {
+    for (; mbuf && len > 0;) {
         if (mbuf_length(mbuf) <= len) {     /* steal this buf from src to dst */
             nnode = listNextNode(node);
             
             listDelNode(src->data, node);
             if (dst != NULL) {
                 listAddNodeTail(dst->data, mbuf);
+                dst->mlen += mbuf_length(mbuf);
             }
             len -= mbuf_length(mbuf);
 
-            if(nnode == NULL)
-            {
+            if (nnode == NULL) {
                 break;
             }
 
-            nbuf = listNodeValue(nnode);
-            mbuf = nbuf;
+            mbuf = listNodeValue(nnode);
             node = nnode;
         } else {                             /* split it */
             if (dst != NULL) {
-                status = msg_append(dst, mbuf->pos, len);
-                if (status != RMT_OK) {
-                    return status;
+                ret = msg_append(dst, mbuf->pos, len);
+                if (ret != RMT_OK) {
+                    return ret;
                 }
             }
             mbuf->pos += len;
+            len = 0;
             break;
         }
     }
 
-    if (dst != NULL) {
-        dst->mlen += bytes;
-    }
+    ASSERT(len == 0);
+
     src->mlen -= bytes;
     log_debug(LOG_VVERB, "redis_copy_bulk copy bytes: %d", bytes);
     return RMT_OK;
@@ -4455,11 +4450,11 @@ static int redis_append_key(struct msg *r, uint8_t *key, uint32_t keylen)
 static int redis_fragment_argx(redis_group *rgroup, 
     struct msg *r, uint32_t ncontinuum, list *frag_msgl, uint32_t key_step)
 {
-    listNode *lnode;
+    int ret;
+    listNode *lnode, *nlnode;
     struct mbuf *mbuf;
     struct msg **sub_msgs;
     uint32_t i;
-    int status;
 
     ASSERT(array_n(r->keys) == (r->narg - 1) / key_step);
 
@@ -4479,7 +4474,7 @@ static int redis_fragment_argx(redis_group *rgroup,
 
     lnode = listFirst(r->data);
     mbuf = listNodeValue(lnode);
-    mbuf->pos = mbuf->start;
+    ASSERT(mbuf->pos == mbuf->start);
 
     /*
      * This code is based on the assumption that '*narg\r\n$4\r\nMGET\r\n' is located
@@ -4490,28 +4485,39 @@ static int redis_fragment_argx(redis_group *rgroup,
     for (i = 0; i < 3; i++) {                 /* eat *narg\r\n$4\r\nMGET\r\n */
 
         while(mbuf->pos >= mbuf->last){
-            lnode = listNextNode(lnode);
+            nlnode = listNextNode(lnode);
+
+            mbuf_put(mbuf);
+            listDelNode(r->data, lnode);
+            
+            lnode = nlnode;
             mbuf = listNodeValue(lnode);
-            mbuf->pos = mbuf->start;
+            ASSERT(mbuf->pos == mbuf->start);
         }
         
         for (; *(mbuf->pos) != '\n';) {
              while(mbuf->pos >= mbuf->last){
-                lnode = listNextNode(lnode);
+                nlnode = listNextNode(lnode);
+
+                mbuf_put(mbuf);
+                listDelNode(r->data, lnode);
+                
+                lnode = nlnode;
                 mbuf = listNodeValue(lnode);
-                mbuf->pos = mbuf->start;
+                ASSERT(mbuf->pos == mbuf->start);
             }
             
             mbuf->pos++;
+            r->mlen --;
         }
         
         mbuf->pos++;
+        r->mlen --;
     }
 
     r->frag_id = msg_gen_frag_id();
     r->nfrag = 0;
     r->frag_owner = r;
-
     for (i = 0; i < array_n(r->keys); i++) {        /* for each key */
         struct msg *sub_msg;
         struct keypos *kpos = array_get(r->keys, i);
@@ -4529,32 +4535,36 @@ static int redis_fragment_argx(redis_group *rgroup,
         r->frag_seq[i] = sub_msg = sub_msgs[idx];
 
         sub_msg->narg++;
-        status = redis_append_key(sub_msg, kpos->start, (uint32_t)(kpos->end - kpos->start));
-        if (status != RMT_OK) {
+        ret = redis_append_key(sub_msg, kpos->start, (uint32_t)(kpos->end - kpos->start));
+        if (ret != RMT_OK) {
             rmt_free(sub_msgs);
             log_error("ERROR: Msg append redis key failed");
-            return status;
+            return ret;
         }
 
         if (key_step == 1) {                            /* mget,del */
             continue;
         } else {                                        /* mset */
-            status = redis_copy_bulk(NULL, r);          /* eat key */
-            if (status != RMT_OK) {
+            ret = redis_copy_bulk(NULL, r);          /* eat key */
+            if (ret != RMT_OK) {
                 rmt_free(sub_msgs);
                 log_error("ERROR: Eat key for mset failed");
-                return status;
+                return ret;
             }
 
-            status = redis_copy_bulk(sub_msg, r);
-            if (status != RMT_OK) {
+            ret = redis_copy_bulk(sub_msg, r);
+            if (ret != RMT_OK) {
                 rmt_free(sub_msgs);
                 log_error("ERROR: Msg append bulk failed");
-                return status;
+                return ret;
             }
 
             sub_msg->narg++;
         }
+    }
+
+    if (key_step == 2) {
+        ASSERT(r->mlen == 0);
     }
 
     for (i = 0; i < ncontinuum; i++) {     /* prepend mget header, and forward it */
@@ -4562,23 +4572,23 @@ static int redis_fragment_argx(redis_group *rgroup,
         if (sub_msg == NULL) {
             continue;
         }
-
+        
         if (r->type == MSG_REQ_REDIS_MGET) {
-            status = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmget\r\n",
+            ret = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmget\r\n",
                                         sub_msg->narg + 1);
         } else if (r->type == MSG_REQ_REDIS_DEL) {
-            status = msg_prepend_format(sub_msg, "*%d\r\n$3\r\ndel\r\n",
+            ret = msg_prepend_format(sub_msg, "*%d\r\n$3\r\ndel\r\n",
                                         sub_msg->narg + 1);
         } else if (r->type == MSG_REQ_REDIS_MSET) {
-            status = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmset\r\n",
+            ret = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmset\r\n",
                                         sub_msg->narg + 1);
         } else {
             NOT_REACHED();
         }
-        if (status != RMT_OK) {
+        if (ret != RMT_OK) {
             rmt_free(sub_msgs);
             log_error("ERROR: Msg prepend command head failed");
-            return status;
+            return ret;
         }
 
         sub_msg->type = r->type;
@@ -4631,36 +4641,36 @@ int redis_reply(struct msg *r)
 
 static void redis_post_coalesce_mset(struct msg *request)
 {
+    int ret;
     struct msg *response = request->peer;
-    int status;
 
-    status = msg_append(response, (uint8_t *)REDIS_REPLY_OK, 
+    ret = msg_append(response, (uint8_t *)REDIS_REPLY_OK, 
         rmt_strlen(REDIS_REPLY_OK));
-    if (status != RMT_OK) {
+    if (ret != RMT_OK) {
         response->err = errno;
     }
 }
 
 static void redis_post_coalesce_del(struct msg *request)
 {
+    int ret;
     struct msg *response = request->peer;
-    int status;
 
-    status = msg_prepend_format(response, ":%d\r\n", request->integer);
-    if (status != RMT_OK) {
+    ret = msg_prepend_format(response, ":%d\r\n", request->integer);
+    if (ret != RMT_OK) {
         response->err = errno;
     }
 }
 
 static void redis_post_coalesce_mget(struct msg *request)
 {
+    int ret;
     struct msg *response = request->peer;
     struct msg *sub_msg;
-    int status;
     uint32_t i;
 
-    status = msg_prepend_format(response, "*%d\r\n", request->narg - 1);
-    if (status != RMT_OK) {
+    ret = msg_prepend_format(response, "*%d\r\n", request->narg - 1);
+    if (ret != RMT_OK) {
         /*
          * the fragments is still in c_conn->omsg_q, we have to discard all of them,
          * we just close the conn here
@@ -4675,8 +4685,8 @@ static void redis_post_coalesce_mget(struct msg *request)
             //response->owner->err = 1;
             return;
         }
-        status = redis_copy_bulk(response, sub_msg);
-        if (status != RMT_OK) {
+        ret = redis_copy_bulk(response, sub_msg);
+        if (ret != RMT_OK) {
             //response->owner->err = 1;
             return;
         }
