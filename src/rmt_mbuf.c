@@ -17,7 +17,7 @@ _mbuf_get(mbuf_base *mb)
 
     if (mb->free_mbufs) {
         mbuf = mttlist_pop(mb->free_mbufs);
-        if(mbuf != NULL) {
+        if (mbuf != NULL) {
             return mbuf;
         }
     }
@@ -54,7 +54,6 @@ _mbuf_get(mbuf_base *mb)
     mbuf = (struct mbuf *)(buf + mb->mbuf_offset);
     mbuf->mb = mb;
     mbuf->magic = MBUF_MAGIC;
-    
     return mbuf;
 }
 
@@ -73,7 +72,7 @@ mbuf_get(mbuf_base *mb)
     mbuf->start = buf;
     mbuf->end = buf + mb->mbuf_offset;
 
-    ASSERT(mbuf->end - mbuf->start == (int)mb->mbuf_offset);
+    ASSERT((mbuf->end - mbuf->start) == (int)mb->mbuf_offset);
     ASSERT(mbuf->start < mbuf->end);
 
     mbuf->pos = mbuf->start;
@@ -298,26 +297,22 @@ mbuf_base_create(size_t mbuf_chunk_size, mttlist_init fn)
 {
     mbuf_base *mb;
 
-    if(mbuf_chunk_size < MBUF_MIN_SIZE || 
-        mbuf_chunk_size > MBUF_MAX_SIZE)
-    {
+    if (mbuf_chunk_size < MBUF_MIN_SIZE || 
+        mbuf_chunk_size > MBUF_MAX_SIZE) {
         log_error("Error: mbuf size must be between %d and %d", 
             MBUF_MIN_SIZE, MBUF_MAX_SIZE);
         return NULL;
     }
 
     mb = rmt_alloc(sizeof(*mb));
-    if(mb == NULL)
-    {
+    if (mb == NULL) {
         return NULL;
     }
 
     mb->free_mbufs = NULL;
-    if(fn != NULL)
-    {
+    if (fn != NULL) {
         mb->free_mbufs = mttlist_create();
-        if(mb->free_mbufs == NULL)
-        {
+        if (mb->free_mbufs == NULL) {
             rmt_free(mb);
             return NULL;
         }

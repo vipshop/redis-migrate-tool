@@ -212,7 +212,7 @@ int msg_empty(struct msg *msg);
 uint64_t msg_gen_frag_id(void);
 uint32_t msg_backend_idx(struct msg *msg, uint8_t *key, uint32_t keylen);
 struct mbuf *msg_ensure_mbuf(struct msg *msg, size_t len);
-int msg_append_full(struct msg *msg, const uint8_t *pos, size_t n);
+int msg_append_full(struct msg *msg, const uint8_t *pos, uint32_t n);
 int msg_append(struct msg *msg, uint8_t *pos, size_t n);
 int msg_prepend(struct msg *msg, uint8_t *pos, size_t n);
 int msg_prepend_format(struct msg *msg, const char *fmt, ...);
@@ -244,7 +244,7 @@ void _msg_dump(const char *file, int line, struct msg *msg, int level);
 #define MSG_CHECK(_c, _x)
 #endif
 
-#ifdef RMT_ASSERT_PANIC || ifdef RMT_ASSERT_LOG)
+#if (defined RMT_ASSERT_PANIC) || (defined RMT_ASSERT_LOG)
 #define MSG_DUMP(_m, _l) do {                           \
     _msg_dump(__FILE__, __LINE__, _m, _l);              \
 } while (0)

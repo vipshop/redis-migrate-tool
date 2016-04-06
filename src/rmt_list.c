@@ -344,14 +344,12 @@ void *listLastValue(list *l)
 {
     listNode *node;
     
-    if(l == NULL)
-    {
+    if (l == NULL) {
         return NULL;
     }
 
     node = listLast(l);
-    if(node == NULL)
-    {
+    if (node == NULL) {
         return NULL;
     }
 
@@ -366,14 +364,12 @@ void *listPop(list *l)
     listNode *node;
     void *value;
     
-    if(l == NULL)
-    {
+    if (l == NULL) {
         return NULL;
     }
 
     node = listFirst(l);
-    if(node == NULL)
-    {
+    if (node == NULL) {
         return NULL;
     }
 

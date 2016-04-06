@@ -84,6 +84,8 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->stat_total_msgs_sent = 0;
     wdata->stat_total_net_output_bytes = 0;
     wdata->stat_all_rdb_parsed = 0;
+    wdata->stat_mbufs_inqueue = 0;    
+    wdata->stat_msgs_outqueue = 0;
 
 	wdata->loop = aeCreateEventLoop(1000);
     if (wdata->loop == NULL) {
@@ -636,16 +638,13 @@ done:
     log_notice("instances_by_host:");
     for (i = 0; i < array_n(&instances_by_host); i ++) {
         instances = array_get(&instances_by_host, i);
-        lnode = instances->head;
-        while (lnode) {
-            rnode = lnode->value;
-            lnode = lnode->next;
-
+        while (rnode = listPop(instances)) {
             log_notice("%s", rnode->addr);
         }
         log_notice("");
-        listRelease(instances);
     }
+    instances_by_host.nelem = 0;
+    array_deinit(&instances_by_host);
 
     return RMT_OK;
 
@@ -653,8 +652,10 @@ error:
 
     for (i = 0; i < array_n(&instances_by_host); i ++) {
         instances = array_get(&instances_by_host, i);
-        listRelease(instances);
+        while (listPop(instances)) {}
     }
+    instances_by_host.nelem = 0;
+    array_deinit(&instances_by_host);
 
     return RMT_ERROR;
 }
@@ -1219,6 +1220,7 @@ again:
             listDelNode(trnode->send_data, lnode_msg);
             if(msg->noreply){
                 ASSERT(listLength(trnode->sent_data) == 0);
+                wdata->stat_msgs_outqueue --;
                 msg_put(msg);
                 msg_free(msg);
             }else{
@@ -1332,8 +1334,8 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
 {
     int ret;
     rmtContext *ctx = srnode->ctx;
-    write_thread_data *write_data = srnode->write_data;
-    redis_group *trgroup = write_data->trgroup;
+    write_thread_data *wdata = srnode->write_data;
+    redis_group *trgroup = wdata->trgroup;
     tcp_context *tc = trnode->tc;
 
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
@@ -1351,30 +1353,31 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
         }
 
         if (ctx->noreply == 0) {
-            ret = aeCreateFileEvent(write_data->loop, tc->sd, 
+            ret = aeCreateFileEvent(wdata->loop, tc->sd, 
                 AE_READABLE, recv_data_from_target, trnode);
             if(ret != AE_OK){
                 log_error("ERROR: send_data event create %ld failed: %s",
-                    write_data->thread_id, strerror(errno));
+                    wdata->thread_id, strerror(errno));
                 return RMT_ERROR;
             }
 
             log_debug(LOG_DEBUG, "node[%s] create read event for thread %ld", 
-                trnode->addr, write_data->thread_id);
+                trnode->addr, wdata->thread_id);
         }
     }
     
-    ret = aeCreateFileEvent(write_data->loop, tc->sd, 
+    ret = aeCreateFileEvent(wdata->loop, tc->sd, 
         AE_WRITABLE, send_data_to_target, trnode);
     if (ret != AE_OK) {
         log_error("ERROR: send_data event create %ld failed: %s",
-            write_data->thread_id, strerror(errno));
+            wdata->thread_id, strerror(errno));
         return RMT_ERROR;
     }
 
     listAddNodeTail(trnode->send_data, msg);
     trgroup->msg_send_num ++;
-    write_data->stat_total_msgs_recv ++;
+    wdata->stat_total_msgs_recv ++;
+    wdata->stat_msgs_outqueue ++;
     log_debug(LOG_DEBUG, "sended msgs: %lld", 
         trgroup->msg_send_num);
     
@@ -1474,6 +1477,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
 {
     int ret;
     struct msg *req;
+    write_thread_data *wdata = trnode->write_data;
     
     if(trnode == NULL || resp == NULL){
         return RMT_ERROR;
@@ -1484,6 +1488,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
     ASSERT(trnode->msg_rcv == resp);
     
     req = listPop(trnode->sent_data);
+    wdata->stat_msgs_outqueue --;
     ASSERT(req != NULL);
     ASSERT(req->sent == 1);
     ASSERT(req->peer == NULL);
@@ -1957,6 +1962,8 @@ source_group_create(rmtContext *ctx)
             goto error;
         }
     }
+
+    ctx->srgroup = srgroup;
 
     return srgroup;
 

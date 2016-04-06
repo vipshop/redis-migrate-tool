@@ -661,6 +661,10 @@ void redis_group_deinit(redis_group *rgroup)
         return;
     }
 
+    if (rgroup->ctx != NULL && rgroup->ctx->srgroup == rgroup) {
+        rgroup->ctx->srgroup = NULL;
+    }
+
     if (rgroup->kind != GROUP_TYPE_UNKNOW) {
         rgroup->kind = GROUP_TYPE_UNKNOW;
     }
@@ -688,7 +692,7 @@ void redis_group_deinit(redis_group *rgroup)
 
     rgroup->msg_send_num = 0;
     rgroup->ncontinuum = 0;
-    
+    rgroup->ctx = NULL;
 }
 
 int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
@@ -4439,20 +4443,20 @@ int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len)
     uint8_t printbuf[32];
 
     /* 1. str_len */
-    len = (uint32_t)rmt_snprintf(printbuf, sizeof(printbuf), "$%d\r\n", str_len);
-    ret = msg_append_full(r, printbuf, len);
+    len = (uint32_t)rmt_snprintf(printbuf, sizeof(printbuf), "$%u\r\n", str_len);
+    ret = msg_append_full(r, (const uint8_t*)printbuf, len);
     if (ret != RMT_OK) {
         return RMT_ENOMEM;
     }
 
     /* 2. key */
-    ret = msg_append_full(r, str, str_len);
+    ret = msg_append_full(r, (const uint8_t*)str, str_len);
     if (ret != RMT_OK) {
         return RMT_ENOMEM;
     }
 
     /* 3. CRLF */
-    ret = msg_append_full(r, CRLF, CRLF_LEN);
+    ret = msg_append_full(r, (const uint8_t*)CRLF, CRLF_LEN);
     if (ret != RMT_OK) {
         return RMT_ENOMEM;
     }
@@ -4897,29 +4901,29 @@ static int redis_msg_append_multi_bulk_len_full(struct msg *msg, uint32_t intege
     return RMT_OK;
 }
 
-static int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len)
+int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len)
 {
     int ret;
     sds len_str;
     
-    if(msg == NULL || str == NULL){
+    if (msg == NULL || str == NULL) {
         return RMT_ERROR;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)"$", 1);
-    if(ret != RMT_OK){
+    if (ret != RMT_OK) {
         return RMT_ENOMEM;
     }
 
     len_str = sdsfromlonglong((long long)len);
-    if(len_str == NULL){
+    if (len_str == NULL) {
         return RMT_ENOMEM;
     }
 
     //log_debug(LOG_DEBUG, "len: %u, len_str : %s", len, len_str);
 
     ret = msg_append_full(msg, (const uint8_t*)len_str, sdslen(len_str));
-    if(ret != RMT_OK){
+    if (ret != RMT_OK) {
         sdsfree(len_str);
         return RMT_ENOMEM;
     }
@@ -4927,17 +4931,17 @@ static int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t
     sdsfree(len_str);
 
     ret = msg_append_full(msg, (const uint8_t*)CRLF, CRLF_LEN);
-    if(ret != RMT_OK){
+    if (ret != RMT_OK) {
        return RMT_ENOMEM;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)str, len);
-    if(ret != RMT_OK){
+    if (ret != RMT_OK) {
         return RMT_ENOMEM;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)CRLF, CRLF_LEN);
-    if(ret != RMT_OK){
+    if (ret != RMT_OK) {
        return RMT_ENOMEM;
     }
 

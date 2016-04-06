@@ -174,6 +174,8 @@ For example, you try the **info** command:
 	total_net_output_bytes:255384129
 	total_net_input_bytes_human:223.77M
 	total_net_output_bytes_human:243.55M
+	total_mbufs_inqueue:0
+	total_msgs_outqueue:0
 	127.0.0.1:8888>
 	
 **info** command response instruction:
@@ -205,7 +207,9 @@ For example, you try the **info** command:
 + **total_net_output_bytes**: The total count of output bytes that had sent to the target group.
 + **total_net_input_bytes_human**: Same as the **total_net_input_bytes**, but convert into human readable.
 + **total_net_output_bytes_human**: Same as the **total_net_output_bytes**, but convert into human readable.
-	
++ **total_mbufs_inqueue**: Cached commands data(not include rdb data) by mbufs input from source group.
++ **total_msgs_outqueue**: Msgs will be sent to target group and msgs had been sent to target but waiting the response.
+
 ## License
 
 Copyright 2012 Deep, Inc.

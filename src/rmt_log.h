@@ -176,6 +176,11 @@ void _log_files_circular_info(struct logger *l);
 char * set_log_file_max_size(char *arg);
 char * set_log_file_count(char *arg);
 
-void log_all(const char *file, int line, size_t data_len, uint8_t *data, const char *fmt, ...);
+void _log10000(const char *file, int line, const char *fmt, ...);
+
+#define log10000(...) do {                                              \
+    _log10000(__FILE__, __LINE__, __VA_ARGS__);                           \
+} while (0)
+
 #endif
 

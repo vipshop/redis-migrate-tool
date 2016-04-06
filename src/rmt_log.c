@@ -1055,11 +1055,11 @@ set_log_file_count(char *arg)
 }
 
 void
-log_all(const char *file, int line, size_t data_len, uint8_t *data, const char *fmt, ...)
+_log10000(const char *file, int line, const char *fmt, ...)
 {
     struct logger *l = &logger;
     int len, size, errno_save;
-    char buf[50];
+    char buf[10000];
     va_list args;
     ssize_t n;
     struct timeval tv;
@@ -1070,7 +1070,7 @@ log_all(const char *file, int line, size_t data_len, uint8_t *data, const char *
 
     errno_save = errno;
     len = 0;            /* length of output buffer */
-    size = LOG_MAX_LEN; /* size of output buffer */
+    size = 10000;       /* size of output buffer */
 
     gettimeofday(&tv, NULL);
     buf[len++] = '[';
@@ -1084,27 +1084,14 @@ log_all(const char *file, int line, size_t data_len, uint8_t *data, const char *
     n = rmt_write(l->fd, buf, len);
     if (n < 0) {
         l->nerror++;
-    }
-    else
-    {
-        _log_rotating(n, l);
-    }
-
-    n = rmt_write(l->fd, data, data_len);
-    if (n < 0) {
-        l->nerror++;
-    }
-    else
-    {
+    } else {
         _log_rotating(n, l);
     }
 
     n = rmt_write(l->fd, "\n", 1);
     if (n < 0) {
         l->nerror++;
-    }
-    else
-    {
+    } else {
         _log_rotating(n, l);
     }
 

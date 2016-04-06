@@ -243,37 +243,32 @@ msg_ensure_mbuf(struct msg *msg, size_t len)
 /*
  * fill the mbuf in the msg with the content
  */
-int
-msg_append_full(struct msg *msg, const uint8_t *pos, size_t n)
+int msg_append_full(struct msg *msg, const uint8_t *pos, uint32_t n)
 {
     struct mbuf *mbuf;
-    uint32_t mbuf_s;
+    uint32_t mbuf_s, left, len;
     mbuf_base *mb = msg->mb;
-    const uint8_t *start = pos;
+    const uint8_t *start;
 
-    while(1){
+    start = pos;
+    left = n;
+
+    while (left > 0) {
         mbuf = listLastValue(msg->data);
-        if(mbuf == NULL || mbuf_size(mbuf) == 0){
+        if (mbuf == NULL || mbuf_size(mbuf) == 0) {
             mbuf = mbuf_get(mb);
-            if(mbuf == NULL){
+            if (mbuf == NULL) {
                 log_error("ERROR: Mbuf get failed: out of memory");
                 return RMT_ENOMEM;
             }
-
             listAddNodeTail(msg->data, mbuf);
         }
 
-        mbuf_s = mbuf_size(mbuf);
-        if(n > mbuf_s){
-            mbuf_copy(mbuf, start, mbuf_s);
-            msg->mlen += (uint32_t)mbuf_s;
-            n -= mbuf_s;
-            start += mbuf_s;
-        }else{
-            mbuf_copy(mbuf, start, n);
-            msg->mlen += (uint32_t)n;
-            break;
-        }
+        len = MIN(left, mbuf_size(mbuf));
+        mbuf_copy(mbuf, start, len);
+        left -= len;
+        start += len;
+        msg->mlen += len;
     }
     
     return RMT_OK;

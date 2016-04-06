@@ -125,6 +125,8 @@ typedef int err_t;     /* error type */
 #include <rmt_connect.h>
 #include <rmt_redis.h>
 
+struct redis_group;
+
 #if (IOV_MAX > 128)
 #define RMT_IOV_MAX 128
 #else
@@ -190,6 +192,8 @@ typedef struct rmtContext {
 
     sds dir;
 
+    struct redis_group *srgroup;
+
     struct array *rdatas;   //read_thread_data
     struct array *wdatas;   //write_thread_data
 
@@ -229,6 +233,8 @@ typedef struct write_thread_data{
     volatile uint64_t stat_total_msgs_sent;  //total msg received for this write thread
     volatile uint64_t stat_total_net_output_bytes;    //total bytes sent to target group for this write thread
     volatile int stat_all_rdb_parsed;   //0 or 1. 1: all the rdb parse finished for this write thread
+    volatile uint64_t stat_mbufs_inqueue;
+    volatile uint64_t stat_msgs_outqueue;
 }write_thread_data;
 
 rmtContext *init_context(struct instance *nci);

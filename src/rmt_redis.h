@@ -213,6 +213,7 @@ redis_node *redis_twem_backend_node(redis_group *rgroup, uint8_t *key, uint32_t 
 redis_node *redis_single_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen);
 
 int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len);
+int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len);
 
 #endif
 

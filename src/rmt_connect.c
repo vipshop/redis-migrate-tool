@@ -84,13 +84,48 @@ static uint64_t total_bytes_sent(rmtContext *ctx)
     return bytes;
 }
 
-static sds gen_migrate_info_string(rmtContext *ctx, sds section)
+static uint64_t total_mbufs_inqueue(rmtContext *ctx)
+{
+    uint64_t count = 0;
+    redis_node *srnode;
+    dictEntry *de;
+    dictIterator *di;
+    dict *nodes = ctx->srgroup->nodes;
+
+    di = dictGetIterator(nodes);
+    while ((de = dictNext(di)) != NULL) {
+        srnode = dictGetVal(de);
+        count += (uint64_t)mttlist_length(srnode->cmd_data);
+    }
+    dictReleaseIterator(di);
+    
+    return count;
+}
+
+static uint64_t total_msgs_outqueue(rmtContext *ctx)
+{
+    uint32_t i;
+    uint64_t count = 0;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        count += wdata->stat_msgs_outqueue;
+    }
+
+    return count;
+}
+
+static sds gen_migrate_info_string(rmtContext *ctx, sds part)
 {
     sds info = sdsempty();
     int allsections = 0, defsections = 0;
+    char *section;
     int sections = 0;
 
-    if (section == NULL) section = "default";
+    if (part == NULL) section = "default";
+    else section = part;
     allsections = strcasecmp(section,"all") == 0;
     defsections = strcasecmp(section,"default") == 0;
 
@@ -165,14 +200,18 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds section)
             "total_net_input_bytes:%"PRIu64"\r\n"
             "total_net_output_bytes:%"PRIu64"\r\n"
             "total_net_input_bytes_human:%s\r\n"
-            "total_net_output_bytes_human:%s\r\n",
+            "total_net_output_bytes_human:%s\r\n"
+            "total_mbufs_inqueue:%"PRIu64"\r\n"
+            "total_msgs_outqueue:%"PRIu64"\r\n",
             all_rdb_parse_finished(ctx),
             total_msgs_received(ctx),
             total_msgs_sent(ctx),
             total_input_bytes,
             total_output_bytes,
             total_input_bytes_human,
-            total_output_bytes_human);
+            total_output_bytes_human,
+            total_mbufs_inqueue(ctx),
+            total_msgs_outqueue(ctx));
     }
 
     return info;
@@ -214,7 +253,7 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
         
         str = gen_migrate_info_string(ctx, section);
         if (section) sdsfree(section);
-        ret = redis_append_bulk(msg, (uint8_t *)str, sdslen(str));
+        ret = redis_msg_append_bulk_full(msg, str, (uint32_t)sdslen(str));
         sdsfree(str);
         break;
     }

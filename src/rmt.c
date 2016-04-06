@@ -57,6 +57,8 @@ init_context(struct instance *rmti)
     rmt_ctx->rdatas = NULL;
     rmt_ctx->wdatas = NULL;
 
+    rmt_ctx->srgroup = NULL;
+
     rmt_ctx->loop = NULL;
     rmt_ctx->starttime = 0LL;
     rmt_ctx->proxy = NULL;
