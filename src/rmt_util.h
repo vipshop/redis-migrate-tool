@@ -78,7 +78,6 @@ int _rmt_lltoa(char* dst, size_t dstlen, long long svalue);
 char _rmt_tohex(int n);
 void _rmt_dec2hex(int n,char s[]);
 
-
 /*
  * Memory allocation and free wrappers.
  *
@@ -108,6 +107,7 @@ void *_rmt_calloc(size_t nmemb, size_t size, const char *name, int line);
 void *_rmt_realloc(void *ptr, size_t size, const char *name, int line);
 void _rmt_free(void *ptr, const char *name, int line);
 
+char *rmt_malloc_lib(void);
 
 /*
  * Wrappers to read or write data to/from (multiple) buffers

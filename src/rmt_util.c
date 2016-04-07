@@ -21,11 +21,25 @@
 # include <execinfo.h>
 #endif
 
-#ifdef RMT_JEMALLOC
+/* Double expansion needed for stringification of macro values. */
+#define __xstr(s) __str(s)
+#define __str(s) #s
+
+#if defined(RMT_JEMALLOC)
 # include <jemalloc/jemalloc.h>
+#define RMT_MALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
+#endif
+
+#ifndef RMT_MALLOC_LIB
+#define RMT_MALLOC_LIB "libc"
 #endif
 
 #define RMT_SYNCIO_RESOLUTION 10 /* Resolution in milliseconds */
+
+char *rmt_malloc_lib(void)
+{
+    return RMT_MALLOC_LIB;
+}
 
 int
 _rmt_atoi(const char* str, int len){

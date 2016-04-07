@@ -181,6 +181,16 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             conn_ntotal_cconn(ctx));
     }
 
+    /* Memory */
+    if (allsections || defsections || !strcasecmp(section,"memory")) {        
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Memory\r\n"
+            "mem_allocator:%s\r\n",
+            rmt_malloc_lib()
+            );
+    }
+
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
         uint64_t total_input_bytes, total_output_bytes;

@@ -208,7 +208,7 @@ For example, you try the **info** command:
 + **total_net_input_bytes_human**: Same as the **total_net_input_bytes**, but convert into human readable.
 + **total_net_output_bytes_human**: Same as the **total_net_output_bytes**, but convert into human readable.
 + **total_mbufs_inqueue**: Cached commands data(not include rdb data) by mbufs input from source group.
-+ **total_msgs_outqueue**: Msgs will be sent to target group and msgs had been sent to target but waiting the response.
++ **total_msgs_outqueue**: Msgs will be sent to target group and msgs had been sent to target but waiting for the response.
 
 ## License
 
