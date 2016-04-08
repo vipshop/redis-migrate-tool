@@ -703,7 +703,10 @@ static void conf_deinit(rmt_conf *cf)
         return;
     }
 
-    cf->fname = NULL;
+    if (cf->fname != NULL) {
+        sdsfree(cf->fname);
+        cf->fname = NULL;
+    }
 
     if(cf->fh != NULL){
         fclose(cf->fh);
@@ -1269,12 +1272,24 @@ conf_open(char *filename)
     int ret;
     rmt_conf *cf = NULL;
     FILE *fh = NULL;
+    sds path = NULL;
 
-    fh = fopen(filename, "r");
-    if (fh == NULL) {
-        log_error("ERROR: failed to open configuration '%s': %s", filename,
-                  strerror(errno));
+    if (filename == NULL) {
+        log_error("ERROR: configuration file name is NULL.");
         return NULL;
+    }
+
+    path = getAbsolutePath(filename);
+    if (path == NULL) {
+        log_error("ERROR: configuration file name '%s' is error.", filename);
+        goto error;
+    }
+
+    fh = fopen(path, "r");
+    if (fh == NULL) {
+        log_error("ERROR: failed to open configuration '%s': %s", path,
+                  strerror(errno));
+        goto error;
     }
 
     cf = rmt_alloc(sizeof(*cf));
@@ -1287,7 +1302,7 @@ conf_open(char *filename)
         goto error;
     }
 
-    cf->fname = filename;
+    cf->fname = path;
     cf->fh = fh;
 
     return cf;
@@ -1300,6 +1315,10 @@ error:
 
     if (cf != NULL) {
         conf_destroy(cf);
+    }
+
+    if (path != NULL) {
+        sdsfree(path);
     }
     
     return NULL;

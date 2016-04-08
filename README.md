@@ -159,12 +159,15 @@ For example, you try the **info** command:
 	tcp_port:8888
 	uptime_in_seconds:1662
 	uptime_in_days:0
-	config_file:rmt.conf
+	config_file:/ect/rmt.conf
 	
 	# Clients
 	connected_clients:1
 	max_clients_limit:100
 	total_connections_received:3
+	
+	# Memory
+	mem_allocator:jemalloc-4.0.4
 	
 	# Stats
 	all_rdb_parsed:1

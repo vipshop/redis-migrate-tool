@@ -43,8 +43,8 @@ typedef struct conf_pool {
 } conf_pool;
 
 typedef struct rmt_conf {
-    char          *fname;           /* file name (ref in argv[]) */
-    FILE          *fh;              /* file handle */
+    sds           fname;             /* file name , absolute path */
+    FILE          *fh;               /* file handle */
 
     dict          *organizations;    /* organizations */
     

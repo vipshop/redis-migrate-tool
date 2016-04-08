@@ -99,9 +99,9 @@ typedef int err_t;     /* error type */
 #include <fcntl.h>
 #include <math.h>
 
+#include <rmt_sds.h>
 #include <rmt_util.h>
 #include <rmt_array.h>
-#include <rmt_sds.h>
 #include <rmt_dict.h>
 #include <rmt_list.h>
 #include <rmt_net.h>

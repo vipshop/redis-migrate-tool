@@ -422,5 +422,7 @@ uint64_t intrev64(uint64_t v);
 #define intrev64ifbe(v) intrev64(v)
 #endif
 
+sds getAbsolutePath(char *filename);
+
 #endif
 
