@@ -211,6 +211,7 @@ typedef struct rmtContext {
 
 //for the read thread
 typedef struct read_thread_data{
+    int id;
     pthread_t thread_id;
     aeEventLoop *loop;
     list *nodes_data;   //type : source redis_node.
@@ -221,6 +222,7 @@ typedef struct read_thread_data{
 
 //for the write thread
 typedef struct write_thread_data{
+    int id;
     pthread_t thread_id;
     aeEventLoop *loop;
     list *nodes;   //type : source redis_node.
@@ -232,7 +234,7 @@ typedef struct write_thread_data{
     volatile uint64_t stat_total_msgs_recv;  //total msg received for this write thread
     volatile uint64_t stat_total_msgs_sent;  //total msg received for this write thread
     volatile uint64_t stat_total_net_output_bytes;    //total bytes sent to target group for this write thread
-    volatile int stat_all_rdb_parsed;   //0 or 1. 1: all the rdb parse finished for this write thread
+    volatile int stat_rdb_parsed_count;      //the rdb parse finished count for this write thread
     volatile uint64_t stat_mbufs_inqueue;
     volatile uint64_t stat_msgs_outqueue;
 }write_thread_data;

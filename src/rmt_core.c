@@ -15,6 +15,7 @@ static int read_thread_data_init(read_thread_data *rdata)
 		return RMT_ERROR;
 	}
 
+    rdata->id = 0;
 	rdata->thread_id = 0;
     rdata->finish_read_nodes = 0;
     rdata->nodes_count = 0;
@@ -72,6 +73,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 		return RMT_ERROR;
 	}
 
+    wdata->id = 0;
 	wdata->thread_id = 0;
     wdata->finish_write_nodes = 0;
     wdata->nodes_count = 0;
@@ -83,7 +85,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->stat_total_msgs_recv = 0;
     wdata->stat_total_msgs_sent = 0;
     wdata->stat_total_net_output_bytes = 0;
-    wdata->stat_all_rdb_parsed = 0;
+    wdata->stat_rdb_parsed_count = 0;
     wdata->stat_mbufs_inqueue = 0;    
     wdata->stat_msgs_outqueue = 0;
 
@@ -434,6 +436,8 @@ static int read_write_threads_create(rmtContext *ctx,
     			goto error;
     		}
 
+            read_data->id = i;
+
             read_data->nodes_count = listLength(instances);
             lnode = instances->head;
             while (lnode) {
@@ -465,6 +469,8 @@ static int read_write_threads_create(rmtContext *ctx,
     		if (ret != RMT_OK) {
     			goto error;
     		}
+
+            write_data->id = i;
 
             write_data->nodes_count = listLength(instances);
             pre_node = NULL;
@@ -518,6 +524,8 @@ static int read_write_threads_create(rmtContext *ctx,
         			goto error;
         		}
 
+                read_data->id = i;
+                
                 read_data->nodes_count = listLength(instances);
                 lnode = instances->head;
                 while (lnode) {
@@ -560,6 +568,8 @@ static int read_write_threads_create(rmtContext *ctx,
         			goto error;
         		}
 
+                write_data->id = i;
+
                 write_data->nodes_count = listLength(instances);
                 pre_node = NULL;
                 lnode = instances->head;
@@ -577,8 +587,7 @@ static int read_write_threads_create(rmtContext *ctx,
                     pre_node = rnode;
                     ret = aeCreateFileEvent(write_data->loop, rnode->notice_pipe[0], 
                         AE_READABLE, parse_prepare, rnode);
-                    if(ret != AE_OK)
-                    {
+                    if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
@@ -595,7 +604,7 @@ static int read_write_threads_create(rmtContext *ctx,
                         continue;
                     }
 
-                    if(listLength(write_data_min_rnodes->nodes) > 
+                    if (listLength(write_data_min_rnodes->nodes) > 
                         listLength(write_data->nodes)) {
                         write_data_min_rnodes = write_data;
                     }
@@ -619,8 +628,7 @@ static int read_write_threads_create(rmtContext *ctx,
                     ret = aeCreateFileEvent(write_data_min_rnodes->loop, 
                         rnode->notice_pipe[0], 
                         AE_READABLE, parse_prepare, rnode);
-                    if(ret != AE_OK)
-                    {
+                    if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
@@ -710,6 +718,8 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
 		{
 			goto error;
 		}
+
+        read_data->id = i;
 
         read_data->nodes_count = step;
 		for(k = begin; k < begin + step; k ++)
@@ -824,6 +834,8 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
     		goto error;
     	}
 
+        write_data->id = i;
+        
         write_data->nodes_count = step;
     	for(k = begin; k < begin + step; k ++)
     	{
@@ -2047,7 +2059,7 @@ void redis_migrate(rmtContext *ctx, int type)
     int node_count = 0;
     int thread_count;
     int read_threads_count, write_threads_count;
-    int threads_hold_nodes_count;
+    int threads_hold_nodes_count, node_next_nodes_count;
     struct array *nodes = NULL;    //type: redis_node
     redis_group *srgroup = NULL;
     struct array *read_datas = NULL; //type : read_thread_data
@@ -2147,7 +2159,7 @@ void redis_migrate(rmtContext *ctx, int type)
         read_data = array_get(read_datas, i);
         threads_hold_nodes_count += read_data->nodes_count;
         
-        log_notice("read thread %d:", i);
+        log_notice("read thread(%d):", read_data->id);
         lnode = read_data->nodes_data->head;
         while (lnode) {
             rnode = lnode->value;
@@ -2159,6 +2171,12 @@ void redis_migrate(rmtContext *ctx, int type)
                     rnode->addr);
                 goto done;
             }
+        }
+
+        if (listLength(read_data->nodes_data) != read_data->nodes_count) {
+            log_error("Error: listLength(read_data->nodes_data) %d != read_data->nodes_count %d.", 
+                    listLength(read_data->nodes_data), read_data->nodes_count);
+            goto done;
         }
     }
     if (threads_hold_nodes_count != node_count && 
@@ -2174,7 +2192,7 @@ void redis_migrate(rmtContext *ctx, int type)
         write_data = array_get(write_datas, i);
         threads_hold_nodes_count += write_data->nodes_count;
         
-        log_notice("write thread %d:", i);
+        log_notice("write thread(%d):", write_data->id);
         lnode = write_data->nodes->head;
         while (lnode) {
             rnode = lnode->value;
@@ -2186,6 +2204,24 @@ void redis_migrate(rmtContext *ctx, int type)
                     rnode->addr);
                 goto done;
             }
+        }
+
+        if (listLength(write_data->nodes) != write_data->nodes_count) {
+            log_error("Error: listLength(write_data->nodes) %d != write_data->nodes_count %d.", 
+                    listLength(write_data->nodes), write_data->nodes_count);
+            goto done;
+        }
+
+        node_next_nodes_count = 0;
+        rnode = listFirstValue(write_data->nodes);
+        while (rnode) {
+            node_next_nodes_count ++;
+            rnode = rnode->next;
+        }
+        if (node_next_nodes_count != write_data->nodes_count) {
+            log_error("Error: node_next_nodes_count %d != write_data->nodes_count %d.", 
+                listLength(write_data->nodes), write_data->nodes_count);
+            goto done;
         }
     }
     if (threads_hold_nodes_count != node_count) {

@@ -6008,13 +6008,15 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     redis_delete_rdb_file(rdb, 0);
 
+    wdata->stat_rdb_parsed_count ++;
+
     //notice the read thread to begin replication for the next redis_node
     if (srnode->next != NULL) {
         rmt_write(srnode->next->notice_read_pipe[1], " ", 1);
     } else {
         log_notice("All nodes' rdb file parsed finished for this write thread(%lu).",
             wdata->thread_id);
-        wdata->stat_all_rdb_parsed = 1;
+        ASSERT(wdata->stat_rdb_parsed_count == wdata->nodes_count);
     }
 
     return RMT_OK;

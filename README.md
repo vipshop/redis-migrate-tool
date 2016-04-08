@@ -171,6 +171,7 @@ For example, you try the **info** command:
 	
 	# Stats
 	all_rdb_parsed:1
+	rdb_parsed_count:32
 	total_msgs_recv:7753587
 	total_msgs_sent:7753587
 	total_net_input_bytes:234636318
@@ -204,6 +205,7 @@ For example, you try the **info** command:
 #### Stats:
 
 + **all_rdb_parsed**: Whether the all the rdb of the nodes in source group parsed finished.
++ **rdb_parsed_count**: The parsed finished rdb count for the nodes in source group .
 + **total_msgs_recv**: The total count of messages that had received from the source group.
 + **total_msgs_sent**: The total count of messages that had sent to the target group.
 + **total_net_input_bytes**: The total count of input bytes that had received from the source group.

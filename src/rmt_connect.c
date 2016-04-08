@@ -15,13 +15,30 @@ static int all_rdb_parse_finished(rmtContext *ctx)
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
-        if (!wdata->stat_all_rdb_parsed) {
+        if (wdata->stat_rdb_parsed_count < wdata->nodes_count) {
+            log_debug(LOG_DEBUG, "@@write thread(%d) stat_rdb_parsed_count: %d , nodes_count: %d", 
+                wdata->id, wdata->stat_rdb_parsed_count, wdata->nodes_count);
             finished = 0;
             break;
         }
     }
 
     return finished;
+}
+
+static int rdb_parse_finished_count(rmtContext *ctx)
+{
+    uint32_t i;
+    int count = 0;
+    struct array *wdatas = ctx->wdatas;
+    write_thread_data *wdata;
+
+    for (i = 0; i < array_n(wdatas); i++) {
+        wdata = array_get(wdatas, i);
+        count += wdata->stat_rdb_parsed_count;
+    }
+
+    return count;
 }
 
 static uint64_t total_msgs_received(rmtContext *ctx)
@@ -205,6 +222,7 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
         info = sdscatprintf(info,
             "# Stats\r\n"
             "all_rdb_parsed:%d\r\n"
+            "rdb_parsed_count:%d\r\n"
             "total_msgs_recv:%"PRIu64"\r\n"
             "total_msgs_sent:%"PRIu64"\r\n"
             "total_net_input_bytes:%"PRIu64"\r\n"
@@ -214,6 +232,7 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             "total_mbufs_inqueue:%"PRIu64"\r\n"
             "total_msgs_outqueue:%"PRIu64"\r\n",
             all_rdb_parse_finished(ctx),
+            rdb_parse_finished_count(ctx),
             total_msgs_received(ctx),
             total_msgs_sent(ctx),
             total_input_bytes,
@@ -316,7 +335,7 @@ int rmt_listen_init(rmt_listen *lt, char *address)
         goto error;
     }
 
-    ip_port = sdssplitlen(lt->addr, sdslen(lt->addr), 
+    ip_port = sdssplitlen(lt->addr, (int)sdslen(lt->addr), 
         IP_PORT_SEPARATOR, rmt_strlen(IP_PORT_SEPARATOR), &ip_port_count);
     if (ip_port == NULL || ip_port_count != 2) {
         log_error("ERROR: listen address %s is error.", address);
