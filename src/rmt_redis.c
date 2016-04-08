@@ -1,5 +1,7 @@
 #include <rmt_core.h>
 
+#define DEFAULT_SOURCE_GROUP_TIMEOUT    120000
+
 /* Client flags */
 #define REDIS_SLAVE (1<<0)   /* This client is a slave server */
 #define REDIS_MASTER (1<<1)  /* This client is a master server */
@@ -197,7 +199,7 @@ int redis_replication_init(redis_repl *rr)
     rr->repl_transfer_size = -1;
     rr->repl_transfer_read = 0;
     rr->repl_transfer_last_fsync_off = 0;
-    rr->repl_transfer_lastio = 0;
+    rr->repl_lastio = 0;
 
     return RMT_OK;
 }
@@ -224,7 +226,7 @@ void redis_replication_deinit(redis_repl *rr)
     rr->repl_transfer_size = -1;
     rr->repl_transfer_read = 0;
     rr->repl_transfer_last_fsync_off = 0;
-    rr->repl_transfer_lastio = 0;
+    rr->repl_lastio = 0;
 }
 
 int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
@@ -553,6 +555,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
     rgroup->source = 0;
     rgroup->password = NULL;
+    rgroup->timeout = 0;
     
     rgroup->mb = NULL;
     rgroup->msg_send_num = 0;
@@ -573,6 +576,8 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             log_error("ERROR: Create mbuf_base failed");
             goto error;
         }
+
+        rgroup->timeout = DEFAULT_SOURCE_GROUP_TIMEOUT;
     } else {
         rgroup->mb = mbuf_base_create(
             REDIS_RESPONSE_MBUF_BASE_SIZE, 
@@ -644,6 +649,10 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
         if (cp->redis_auth != CONF_UNSET_PTR) {
             rgroup->password = sdsdup(cp->redis_auth);
+        }
+
+        if (cp->timeout != CONF_UNSET_NUM) {
+            rgroup->timeout= cp->timeout;
         }
     }
 
@@ -924,7 +933,7 @@ static int redisRplicationReset(redis_node *srnode)
     rr->repl_transfer_size = -1;
     rr->repl_transfer_read = 0;
     rr->repl_transfer_last_fsync_off = 0;
-    rr->repl_transfer_lastio = 0;
+    rr->repl_lastio = 0;
     
     return RMT_OK;
 }
@@ -938,15 +947,18 @@ static int redisRplicationReset(redis_node *srnode)
 #define SYNC_CMD_READ (1<<0)
 #define SYNC_CMD_WRITE (1<<1)
 #define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
-static char *sendReplSyncCommand(int flags, int fd, ...) {
-
+static char *sendReplSyncCommand(int flags, redis_node *srnode, ...) {
+    tcp_context *tc = srnode->tc;
+    redis_repl *rr = srnode->rr;
+    read_thread_data *rdata = srnode->read_data;
+    
     /* Create the command to send to the master, we use simple inline
      * protocol for simplicity as currently we only send simple strings. */
     if (flags & SYNC_CMD_WRITE) {
         char *arg;
         va_list ap;
         sds cmd = sdsempty();
-        va_start(ap,fd);
+        va_start(ap,srnode);
 
         while(1) {
             arg = va_arg(ap, char*);
@@ -958,7 +970,7 @@ static char *sendReplSyncCommand(int flags, int fd, ...) {
         cmd = sdscatlen(cmd,"\r\n",2);
 
         /* Transfer command to the server. */
-        if (rmt_sync_write(fd,cmd,sdslen(cmd),1000)
+        if (rmt_sync_write(tc->sd,cmd,sdslen(cmd),1000)
             == -1)
         {
             sdsfree(cmd);
@@ -971,17 +983,26 @@ static char *sendReplSyncCommand(int flags, int fd, ...) {
 
     /* Read the reply from the server. */
     if (flags & SYNC_CMD_READ) {
+        ssize_t nread;
         char buf[256];
 
-        if (rmt_sync_readline(fd,buf,sizeof(buf),1000)
-            == -1)
-        {
+        nread = rmt_sync_readline(tc->sd,buf,sizeof(buf),1000);
+        if (nread == -1) {
             return sdscatprintf(sdsempty(),"-Reading from master: %s",
                     strerror(errno));
         }
+        rr->repl_lastio = rdata->unixtime;
         return sdsnew(buf);
     }
     return NULL;
+}
+
+/* Returns 1 if the given replication state is a handshake state,
+ * 0 otherwise. */
+static int rmtSlaveIsInHandshakeState(redis_node *srnode) {
+    redis_repl *rr = srnode->rr;
+    return rr->repl_state >= REDIS_REPL_RECEIVE_PONG &&
+           rr->repl_state <= REDIS_REPL_RECEIVE_PSYNC;
 }
 
 /* Try a partial resynchronization with the master if we are about to reconnect.
@@ -1067,7 +1088,7 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
         }
 
         /* Issue the PSYNC command */
-        reply = sendReplSyncCommand(SYNC_CMD_WRITE,tc->sd,"PSYNC",psync_runid,psync_offset,NULL);
+        reply = sendReplSyncCommand(SYNC_CMD_WRITE,srnode,"PSYNC",psync_runid,psync_offset,NULL);
         if (reply != NULL) {
             log_error("ERROR: Unable to send PSYNC to master[%s]: %s", 
                 srnode->addr, reply);
@@ -1078,7 +1099,7 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
     }
 
     /* Reading half */
-    reply = sendReplSyncCommand(SYNC_CMD_READ,tc->sd,NULL);
+    reply = sendReplSyncCommand(SYNC_CMD_READ,srnode,NULL);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
@@ -1313,6 +1334,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
         mttlist_push(srnode->cmd_data, srnode->mbuf_in);
         srnode->mbuf_in = NULL;
         notice_write_thread(srnode);
+        rr->repl_lastio = rdata->unixtime;
     }
 
     return;
@@ -1524,7 +1546,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             /* At this stage just a newline works as a PING in order to take
              * the connection live. So we refresh our last interaction
              * timestamp. */
-            rr->repl_transfer_lastio = rmt_usec_now();
+            rr->repl_lastio = rdata->unixtime;
             return;
         } else if (buf[0] != '$') {
             log_error("Error: Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the adrress %s are right?", 
@@ -1615,7 +1637,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         if (memcmp(lastbytes,eofmark,REDIS_RUN_ID_SIZE) == 0) eof_reached = 1;
     }
 
-    rr->repl_transfer_lastio = rmt_usec_now();
+    rr->repl_lastio = rdata->unixtime;
     
     rr->repl_transfer_read += nread;
 
@@ -1718,13 +1740,13 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
         /* Send the PING, don't check for errors at all, we have the timeout
          * that will take care about this. */
-        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"PING",NULL);
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,srnode,"PING",NULL);
         if (err) goto write_error;
         return;
     }
 
     if (rr->repl_state == REDIS_REPL_RECEIVE_PONG) {
-        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        err = sendReplSyncCommand(SYNC_CMD_READ,srnode,NULL);
 
         /* We accept only two replies as valid, a positive +PONG reply
              * (we just check for "+") or an authentication error.
@@ -1755,7 +1777,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     /* AUTH with the master if required. */
     if (rr->repl_state == REDIS_REPL_SEND_AUTH) {
         if (srgroup->password) {
-            err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"AUTH",srgroup->password,NULL);
+            err = sendReplSyncCommand(SYNC_CMD_WRITE,srnode,"AUTH",srgroup->password,NULL);
             if (err) goto write_error;
             rr->repl_state = REDIS_REPL_RECEIVE_AUTH;
             return;
@@ -1766,7 +1788,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     /* Receive AUTH reply. */
     if (rr->repl_state == REDIS_REPL_RECEIVE_AUTH) {
-        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        err = sendReplSyncCommand(SYNC_CMD_READ,srnode,NULL);
         if (err[0] == '-') {
             log_error("ERROR: Unable to AUTH to MASTER[%s]: %s", 
                 srnode->addr, err);
@@ -1791,7 +1813,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
             port_str = sdsfromlonglong(port);
         }
 
-        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,srnode,"REPLCONF",
                 "listening-port",port_str, NULL);
         sdsfree(port_str);
         if (err) goto write_error;
@@ -1802,7 +1824,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     /* Receive REPLCONF listening-port reply. */
     if (rr->repl_state == REDIS_REPL_RECEIVE_PORT) {
-        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        err = sendReplSyncCommand(SYNC_CMD_READ,srnode,NULL);        
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
@@ -1818,7 +1840,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
      * in the form of REPLCONF capa X capa Y capa Z ...
      * The master will ignore capabilities it does not understand. */
     if (rr->repl_state == REDIS_REPL_SEND_CAPA) {
-        err = sendReplSyncCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
+        err = sendReplSyncCommand(SYNC_CMD_WRITE,srnode,"REPLCONF",
                 "capa","eof",NULL);
         if (err) goto write_error;
         sdsfree(err);
@@ -1828,7 +1850,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     /* Receive CAPA reply. */
     if (rr->repl_state == REDIS_REPL_RECEIVE_CAPA) {
-        err = sendReplSyncCommand(SYNC_CMD_READ,fd,NULL);
+        err = sendReplSyncCommand(SYNC_CMD_READ,srnode,NULL);
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
@@ -1894,7 +1916,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     rr->repl_transfer_size = -1;
     rr->repl_transfer_read = 0;
     rr->repl_transfer_last_fsync_off = 0;
-    rr->repl_transfer_lastio = rmt_usec_now();
+    rr->repl_lastio = read_data->unixtime;
 
     //Prepare rdb file for recieve rdb data
     if(rdb->type == REDIS_RDB_TYPE_FILE && rdb->fd < 0){
@@ -1986,6 +2008,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     }
 
     rr->repl_state = REDIS_REPL_CONNECTING;
+    rr->repl_lastio = read_data->unixtime;
     
     return RMT_OK;
 
@@ -2004,9 +2027,38 @@ void redisSlaveReplCorn(redis_node *srnode)
     read_thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
+    redis_group *srgroup = srnode->owner;
 
     log_debug(LOG_VERB, "redisSlaveReplCorn()");
 
+    /* Non blocking connection timeout? */
+    if ((rr->repl_state == REDIS_REPL_CONNECTING ||
+        rmtSlaveIsInHandshakeState(srnode)) && 
+        (rmt_msec_now() - rr->repl_lastio) > srgroup->timeout) {
+        log_error("ERROR: Timeout connecting to the MASTER[%s]", srnode->addr);
+        rmtRedisSlaveOffline(srnode);
+    }
+
+    /* Bulk transfer I/O timeout? */
+    if (rr->repl_state == REDIS_REPL_TRANSFER &&
+        (rmt_msec_now() - rr->repl_lastio) > srgroup->timeout) {
+        log_error("ERROR: Timeout receiving bulk data from MASTER[%s]."
+            "If the problem persists try to set the 'timeout' parameter(now is %d)"
+            "of source group in rmt.conf to a larger value.", 
+            srnode->addr, srgroup->timeout);
+        rmtReceiveRdbAbort(srnode);
+    }
+
+    /* Timed out master when we are an already connected slave? */
+    if (rr->repl_state == REDIS_REPL_CONNECTED &&
+        (rmt_msec_now() - rr->repl_lastio) > srgroup->timeout) {
+        log_error("ERROR: MASTER[%s] timeout, no data nor PING received.", 
+            srnode->addr);
+        rmtRedisSlaveOffline(srnode);
+        /* !!here we need to note the error in info command */
+    }
+
+    /* Check if we should connect to a MASTER */
     if (rr->repl_state == REDIS_REPL_CONNECT) {
         ASSERT(tc->sd < 0);
         ASSERT((tc->flags & RMT_CONNECTED) == 0);
@@ -2025,7 +2077,11 @@ void redisSlaveReplCorn(redis_node *srnode)
         }
 
         rr->repl_state = REDIS_REPL_CONNECTING;
-    } else if (rr->repl_state == REDIS_REPL_CONNECTED) {
+        rr->repl_lastio = rdata->unixtime;
+    }
+
+    /* Send ACK to master from time to time. */
+    if (rr->repl_state == REDIS_REPL_CONNECTED) {
         char buf[64];
         int len;
         len = rmt_lltoa(buf, 64, rr->reploff);
@@ -6014,8 +6070,8 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     if (srnode->next != NULL) {
         rmt_write(srnode->next->notice_read_pipe[1], " ", 1);
     } else {
-        log_notice("All nodes' rdb file parsed finished for this write thread(%lu).",
-            wdata->thread_id);
+        log_notice("All nodes' rdb file parsed finished for this write thread(%d).",
+            wdata->id);
         ASSERT(wdata->stat_rdb_parsed_count == wdata->nodes_count);
     }
 

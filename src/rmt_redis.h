@@ -100,7 +100,7 @@ typedef struct redis_repl{
     off_t repl_transfer_size;   /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read;   /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
-    long long repl_transfer_lastio; /* Unix time of the latest read, for timeout */
+    long long repl_lastio;      /* Unix time of the latest read, for timeout. In milliseconds. */
 }redis_repl;
 
 typedef struct redis_group{
@@ -111,6 +111,7 @@ typedef struct redis_group{
 
     int source;          	/* source group? */
     sds password;      	    /* redis password */
+    int timeout;            /* timeout in milliseconds */
     
     mbuf_base *mb;
     long long msg_send_num; /* msg count sended to target group */

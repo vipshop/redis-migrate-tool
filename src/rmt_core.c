@@ -20,6 +20,7 @@ static int read_thread_data_init(read_thread_data *rdata)
     rdata->finish_read_nodes = 0;
     rdata->nodes_count = 0;
     rdata->loop = NULL;
+    rdata->unixtime = rmt_msec_now();
     rdata->nodes_data = NULL;
     rdata->stat_total_net_input_bytes = 0;
 
@@ -78,6 +79,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
     wdata->finish_write_nodes = 0;
     wdata->nodes_count = 0;
 	wdata->loop = NULL;
+    wdata->unixtime = rmt_msec_now();
     wdata->trgroup = NULL;
     wdata->nodes = NULL;
     wdata->notice_pipe[0] = -1;
@@ -197,6 +199,9 @@ static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *cli
 
     log_debug(LOG_VERB, "writeThreadCron() %lld", id);
 
+    /* Update the time */
+    rdata->unixtime = rmt_msec_now();
+
     //Check error connection
     li = listGetIterator(rdata->nodes_data, AL_START_HEAD);
     while ((ln = listNext(li)) != NULL) {
@@ -224,6 +229,9 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
     RMT_NOTUSED(clientData);
 
     log_debug(LOG_VERB, "writeThreadCron() %lld", id);
+
+    /* Update the time */
+    wdata->unixtime = rmt_msec_now();
 
     //Check error connection
     di = dictGetSafeIterator(trgroup->nodes);

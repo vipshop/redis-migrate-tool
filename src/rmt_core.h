@@ -214,10 +214,11 @@ typedef struct read_thread_data{
     int id;
     pthread_t thread_id;
     aeEventLoop *loop;
-    list *nodes_data;   //type : source redis_node.
-    int nodes_count;    //this loop thread is responsible for.
+    long long unixtime; /* Unix time sampled every cron cycle. In milliseconds. */
+    list *nodes_data;   /* Type : source redis_node. */
+    int nodes_count;    /* Count of the nodes that  this loop thread is responsible for. */
     int finish_read_nodes;
-    volatile uint64_t stat_total_net_input_bytes;    //total bytes received from source group for this read thread
+    volatile uint64_t stat_total_net_input_bytes;    /* total bytes received from source group for this read thread */
 }read_thread_data;
 
 //for the write thread
@@ -225,16 +226,17 @@ typedef struct write_thread_data{
     int id;
     pthread_t thread_id;
     aeEventLoop *loop;
-    list *nodes;   //type : source redis_node.
-    int nodes_count;    //this loop thread is responsible for.
+    long long unixtime; /* Unix time sampled every cron cycle. In milliseconds. */
+    list *nodes;        /* type : source redis_node. */
+    int nodes_count;    /* Count of the nodes that this loop thread is responsible for. */
     int finish_write_nodes;
-    redis_group *trgroup;   //target group
-    int notice_pipe[2];     //used to notice the read thread  to begin replication
+    redis_group *trgroup;   /* target group */
+    int notice_pipe[2];     /* used to notice the read thread  to begin replication */
 
-    volatile uint64_t stat_total_msgs_recv;  //total msg received for this write thread
-    volatile uint64_t stat_total_msgs_sent;  //total msg received for this write thread
-    volatile uint64_t stat_total_net_output_bytes;    //total bytes sent to target group for this write thread
-    volatile int stat_rdb_parsed_count;      //the rdb parse finished count for this write thread
+    volatile uint64_t stat_total_msgs_recv;         /* total msg received for this write thread */
+    volatile uint64_t stat_total_msgs_sent;         /* total msg received for this write thread */
+    volatile uint64_t stat_total_net_output_bytes;  /* total bytes sent to target group for this write thread */
+    volatile int stat_rdb_parsed_count;             /* the rdb parse finished count for this write thread */
     volatile uint64_t stat_mbufs_inqueue;
     volatile uint64_t stat_msgs_outqueue;
 }write_thread_data;
