@@ -217,7 +217,7 @@ For example, you try the **info** command:
 + **all_rdb_parsed**: Whether the all the rdb of the nodes in source group parsed finished.
 + **rdb_parsed_count**: The parsed finished rdb count for the nodes in source group .
 + **total_msgs_recv**: The total count of messages that had received from the source group.
-+ **total_msgs_sent**: The total count of messages that had sent to the target group.
++ **total_msgs_sent**: The total count of messages that had sent to the target group and received response from target group.
 + **total_net_input_bytes**: The total count of input bytes that had received from the source group.
 + **total_net_output_bytes**: The total count of output bytes that had sent to the target group.
 + **total_net_input_bytes_human**: Same as the **total_net_input_bytes**, but convert into human readable.

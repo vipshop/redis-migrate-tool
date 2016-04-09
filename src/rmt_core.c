@@ -1243,11 +1243,11 @@ again:
                 wdata->stat_msgs_outqueue --;
                 msg_put(msg);
                 msg_free(msg);
+                wdata->stat_total_msgs_sent ++;
             }else{
                 msg->sent = 1;
                 listAddNodeTail(trnode->sent_data,msg);
             }
-            wdata->stat_total_msgs_sent ++;
         }
     }
 
@@ -1507,7 +1507,8 @@ static int response_done(redis_node *trnode, struct msg *resp)
 
     ASSERT(trnode->msg_rcv == resp);
     
-    req = listPop(trnode->sent_data);
+    req = listPop(trnode->sent_data);    
+    wdata->stat_total_msgs_sent ++;
     wdata->stat_msgs_outqueue --;
     ASSERT(req != NULL);
     ASSERT(req->sent == 1);

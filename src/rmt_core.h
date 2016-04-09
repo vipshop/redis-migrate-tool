@@ -233,8 +233,8 @@ typedef struct write_thread_data{
     redis_group *trgroup;   /* target group */
     int notice_pipe[2];     /* used to notice the read thread  to begin replication */
 
-    volatile uint64_t stat_total_msgs_recv;         /* total msg received for this write thread */
-    volatile uint64_t stat_total_msgs_sent;         /* total msg received for this write thread */
+    volatile uint64_t stat_total_msgs_recv;         /* total msg received from source group for this write thread */
+    volatile uint64_t stat_total_msgs_sent;         /* total msg sent to target group and received response from target group for this write thread  */
     volatile uint64_t stat_total_net_output_bytes;  /* total bytes sent to target group for this write thread */
     volatile int stat_rdb_parsed_count;             /* the rdb parse finished count for this write thread */
     volatile uint64_t stat_mbufs_inqueue;
