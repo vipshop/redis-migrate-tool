@@ -170,6 +170,10 @@ For example, you try the **info** command:
 	# Memory
 	mem_allocator:jemalloc-4.0.4
 	
+	# Group
+	source_nodes_count:32
+	target_nodes_count:48
+	
 	# Stats
 	all_rdb_parsed:1
 	rdb_parsed_count:32
@@ -202,6 +206,11 @@ For example, you try the **info** command:
 + **connected_clients**: The count of clients that connected at present.
 + **max_clients_limit**: The max number of clients that allows to accept at the same time.
 + **total_connections_received**: The total count of connections that received so far.
+
+#### Group:
+
++ **source_nodes_count**: The nodes count of source redis group.
++ **target_nodes_count**: The nodes count of target redis group.
 
 #### Stats:
 

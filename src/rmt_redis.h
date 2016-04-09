@@ -106,7 +106,7 @@ typedef struct redis_repl{
 typedef struct redis_group{
     struct rmtContext *ctx;
     dict *nodes;
-    uint32_t node_count;
+    uint32_t node_id;
     int kind;            	/* twemproxy, redis cluster or ... */
 
     int source;          	/* source group? */

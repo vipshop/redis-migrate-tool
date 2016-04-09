@@ -6,6 +6,19 @@
 #define ERROR_RESPONSE_SYNTAX       "-ERR syntax error\r\n"
 #define ERROR_RESPONSE_NOTSUPPORT   "-ERR command not support\r\n"
 
+static uint32_t source_group_nodes_count(rmtContext *ctx)
+{
+    return (uint32_t)dictSize(ctx->srgroup->nodes);
+}
+
+static uint32_t target_group_nodes_count(rmtContext *ctx)
+{
+    write_thread_data *wdata;
+
+    wdata = array_get(ctx->wdatas, 0);
+    return (uint32_t)dictSize(wdata->trgroup->nodes);
+}
+
 static int all_rdb_parse_finished(rmtContext *ctx)
 {
     uint32_t i;
@@ -205,6 +218,18 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             "# Memory\r\n"
             "mem_allocator:%s\r\n",
             rmt_malloc_lib()
+            );
+    }
+
+    /* Group */
+    if (allsections || defsections || !strcasecmp(section,"group")) {        
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Group\r\n"
+            "source_nodes_count:%"PRIu32"\r\n"
+            "target_nodes_count:%"PRIu32"\r\n",
+            source_group_nodes_count(ctx),
+            target_group_nodes_count(ctx)
             );
     }
 

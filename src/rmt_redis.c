@@ -396,8 +396,8 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         }
     }
 
-    rnode->id = rgroup->node_count;
-    rgroup->node_count ++;
+    rnode->id = rgroup->node_id;
+    rgroup->node_id ++;
     
     return RMT_OK;
     
@@ -550,7 +550,7 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
     rgroup->ctx = NULL;
     rgroup->nodes = NULL;
-    rgroup->node_count = 0;
+    rgroup->node_id = 0;
     rgroup->kind = GROUP_TYPE_UNKNOW;
 
     rgroup->source = 0;
@@ -1728,8 +1728,8 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     }
 
     if (sockerr) {
-        log_error("ERROR: error condition on socket %d for SYNC: %s",
-            tc->sd, strerror(sockerr));
+        log_error("ERROR: error condition on MASTER[%s] socket %d for SYNC: %s",
+            srnode->addr, tc->sd, strerror(sockerr));
         goto error;
     }
 
