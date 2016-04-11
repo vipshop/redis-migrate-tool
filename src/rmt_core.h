@@ -194,10 +194,10 @@ typedef struct rmtContext {
 
     struct redis_group *srgroup;
 
-    struct array *rdatas;   //read_thread_data
-    struct array *wdatas;   //write_thread_data
+    struct array *rdatas;   /* read thread_data */
+    struct array *wdatas;   /* write thread_data */
 
-    /* The fllow region used to client connect to migrate tool */
+    /* The fllow region used for client connect to migrate tool */
     aeEventLoop *loop;
     long long starttime; /* server start time in milliseconds */
     rmt_connect *proxy;
@@ -209,40 +209,39 @@ typedef struct rmtContext {
     mbuf_base *mb;
 }rmtContext;
 
-//for the read thread
-typedef struct read_thread_data{
+typedef struct thread_data{
     int id;
     pthread_t thread_id;
     aeEventLoop *loop;
-    long long unixtime; /* Unix time sampled every cron cycle. In milliseconds. */
-    list *nodes_data;   /* Type : source redis_node. */
-    int nodes_count;    /* Count of the nodes that  this loop thread is responsible for. */
-    int finish_read_nodes;
-    volatile uint64_t stat_total_net_input_bytes;    /* total bytes received from source group for this read thread */
-}read_thread_data;
+    long long unixtime;     /* Unix time sampled every cron cycle. In milliseconds. */
 
-//for the write thread
-typedef struct write_thread_data{
-    int id;
-    pthread_t thread_id;
-    aeEventLoop *loop;
-    long long unixtime; /* Unix time sampled every cron cycle. In milliseconds. */
-    list *nodes;        /* type : source redis_node. */
-    int nodes_count;    /* Count of the nodes that this loop thread is responsible for. */
-    int finish_write_nodes;
+    rmtContext  *ctx;
+    redis_group *srgroup;   /* source group */
     redis_group *trgroup;   /* target group */
+
+    list *nodes;            /* type : source redis_node. */
+    int nodes_count;        /* Count of the nodes that this loop thread is responsible for. */
     int notice_pipe[2];     /* used to notice the read thread  to begin replication */
 
-    volatile uint64_t stat_total_msgs_recv;         /* total msg received from source group for this write thread */
-    volatile uint64_t stat_total_msgs_sent;         /* total msg sent to target group and received response from target group for this write thread  */
+    long long keys_count;   /* keys count to check for this thread */
+    long long checked_keys_count;
+    
+    list *data;             /* data list */
+
+    volatile uint64_t stat_total_msgs_recv;         /* total msg received for this thread */
+    volatile uint64_t stat_total_msgs_sent;         /* total msg received for this thread */
+    volatile uint64_t stat_total_net_input_bytes;   /* total bytes received from source group for this read thread */
     volatile uint64_t stat_total_net_output_bytes;  /* total bytes sent to target group for this write thread */
-    volatile int stat_rdb_parsed_count;             /* the rdb parse finished count for this write thread */
+    volatile int      stat_rdb_parsed_count;        /* the rdb parse finished count for this write thread */
     volatile uint64_t stat_mbufs_inqueue;
     volatile uint64_t stat_msgs_outqueue;
-}write_thread_data;
+}thread_data;
 
 rmtContext *init_context(struct instance *nci);
 void destroy_context(rmtContext *rmt_ctx);
+
+int thread_data_init(thread_data *tdata);
+void thread_data_deinit(thread_data *tdata);
 
 unsigned int dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);

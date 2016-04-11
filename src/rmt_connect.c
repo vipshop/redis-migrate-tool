@@ -13,7 +13,7 @@ static uint32_t source_group_nodes_count(rmtContext *ctx)
 
 static uint32_t target_group_nodes_count(rmtContext *ctx)
 {
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     wdata = array_get(ctx->wdatas, 0);
     return (uint32_t)dictSize(wdata->trgroup->nodes);
@@ -24,7 +24,7 @@ static int all_rdb_parse_finished(rmtContext *ctx)
     uint32_t i;
     int finished = 1;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
@@ -44,7 +44,7 @@ static int rdb_parse_finished_count(rmtContext *ctx)
     uint32_t i;
     int count = 0;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
@@ -59,7 +59,7 @@ static uint64_t total_msgs_received(rmtContext *ctx)
     uint32_t i;
     uint64_t count = 0;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
@@ -74,7 +74,7 @@ static uint64_t total_msgs_sent(rmtContext *ctx)
     uint32_t i;
     uint64_t count = 0;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
@@ -89,7 +89,7 @@ static uint64_t total_bytes_received(rmtContext *ctx)
     uint32_t i;
     uint64_t bytes = 0;
     struct array *rdatas = ctx->rdatas;
-    read_thread_data *rdata;
+    thread_data *rdata;
 
     for (i = 0; i < array_n(rdatas); i++) {
         rdata = array_get(rdatas, i);
@@ -104,7 +104,7 @@ static uint64_t total_bytes_sent(rmtContext *ctx)
     uint32_t i;
     uint64_t bytes = 0;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
@@ -137,7 +137,7 @@ static uint64_t total_msgs_outqueue(rmtContext *ctx)
     uint32_t i;
     uint64_t count = 0;
     struct array *wdatas = ctx->wdatas;
-    write_thread_data *wdata;
+    thread_data *wdata;
 
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);

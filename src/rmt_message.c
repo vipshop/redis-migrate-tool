@@ -85,6 +85,8 @@ _msg_get(void)
 
     msg->sent = 0;
 
+    msg->ptr = NULL;
+    
     return msg;
 }
 

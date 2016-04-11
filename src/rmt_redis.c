@@ -113,13 +113,6 @@ struct node_twem{
 
 /* ======================= Redis TWEMPROXY END ========================= */
 
-/* Object types */
-#define REDIS_STRING    0
-#define REDIS_LIST      1
-#define REDIS_SET       2
-#define REDIS_ZSET      3
-#define REDIS_HASH      4
-
 /* Insert command for every object */
 #define REDIS_INSERT_STRING    "set"
 #define REDIS_INSERT_LIST      "lpush"
@@ -950,7 +943,7 @@ static int redisRplicationReset(redis_node *srnode)
 static char *sendReplSyncCommand(int flags, redis_node *srnode, ...) {
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     
     /* Create the command to send to the master, we use simple inline
      * protocol for simplicity as currently we only send simple strings. */
@@ -1061,7 +1054,7 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
     int ret;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
-    read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     char *psync_runid;
     char psync_offset[32];
     sds reply;
@@ -1107,7 +1100,7 @@ static int rmtTryPartialResynchronization(redis_node *srnode, int read_reply) {
         return RMT_PSYNC_WAIT_REPLY;
     }
 
-    aeDeleteFileEvent(read_data->loop,tc->sd,AE_READABLE);
+    aeDeleteFileEvent(rdata->loop,tc->sd,AE_READABLE);
 
     if (!rmt_strncmp(reply,"+FULLRESYNC",11)) {
         char *runid = NULL, *offset = NULL;
@@ -1281,7 +1274,7 @@ static void rmtRedisSlaveReadQueryFromMaster(aeEventLoop *el, int fd, void *priv
     ssize_t nread;
     redis_node *srnode = privdata;
     redis_group *srgroup = srnode->owner;
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     tcp_context *tc = srnode->tc;
     
@@ -1391,7 +1384,7 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
 {
     struct mbuf *mbuf;
     redis_rdb *rdb = srnode->rdb;
-    struct read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
 
@@ -1432,7 +1425,7 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     rmt_set_nonblocking(tc->sd);
     rmt_set_tcpnodelay(tc->sd);
 
-    if (aeCreateFileEvent(read_data->loop,tc->sd,AE_READABLE,
+    if (aeCreateFileEvent(rdata->loop,tc->sd,AE_READABLE,
         rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR) {
         log_error("ERROR: can't create the rmtRedisSlaveReadQueryFromMaster file event.");
         return RMT_ERROR;
@@ -1444,7 +1437,7 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
 static void rmtRedisSlaveOffline(redis_node *srnode)
 {
     tcp_context *tc = srnode->tc;
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     
     aeDeleteFileEvent(rdata->loop,tc->sd,AE_READABLE|AE_WRITABLE);
@@ -1454,7 +1447,7 @@ static void rmtRedisSlaveOffline(redis_node *srnode)
 
 static int rmtRedisSlaveAgainOnline(redis_node *srnode)
 {
-    read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
 
@@ -1466,7 +1459,7 @@ static int rmtRedisSlaveAgainOnline(redis_node *srnode)
     rmt_set_nonblocking(tc->sd);
     rmt_set_tcpnodelay(tc->sd);
 
-    if (aeCreateFileEvent(read_data->loop,tc->sd,AE_READABLE,
+    if (aeCreateFileEvent(rdata->loop,tc->sd,AE_READABLE,
         rmtRedisSlaveReadQueryFromMaster, srnode) == AE_ERR) {
         log_error("ERROR: can't create the node[%s] rmtRedisSlaveReadQueryFromMaster file event.", 
             srnode->addr);
@@ -1479,7 +1472,7 @@ static int rmtRedisSlaveAgainOnline(redis_node *srnode)
 
 static void rmtReceiveRdbAbort(redis_node *srnode)
 {
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_rdb *rdb = srnode->rdb;
     redis_repl *rr = srnode->rr;
@@ -1506,7 +1499,7 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     ssize_t nread, readlen;
     off_t left;
     redis_node *srnode = privdata;
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
     char *eofmark = rr->eofmark;
@@ -1704,7 +1697,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 {
 	int ret;
     redis_node *srnode = privdata;
-    read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
@@ -1719,7 +1712,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
     
-    ASSERT(el == read_data->loop);
+    ASSERT(el == rdata->loop);
     ASSERT(fd == tc->sd);
     ASSERT(srgroup->source == 1);
 
@@ -1735,7 +1728,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
 
     if (rr->repl_state == REDIS_REPL_CONNECTING) {
         log_notice("Start connecting to MASTER[%s].", srnode->addr);
-        aeDeleteFileEvent(read_data->loop,fd,AE_WRITABLE);        
+        aeDeleteFileEvent(rdata->loop,fd,AE_WRITABLE);        
         rr->repl_state = REDIS_REPL_RECEIVE_PONG;
 
         /* Send the PING, don't check for errors at all, we have the timeout
@@ -1905,7 +1898,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     }
 
     /* Setup the non blocking download of the bulk file. */
-    if (aeCreateFileEvent(read_data->loop,fd,AE_READABLE,rmtReceiveRdb,srnode)
+    if (aeCreateFileEvent(rdata->loop,fd,AE_READABLE,rmtReceiveRdb,srnode)
             == AE_ERR) {
         log_error("ERROR: Can't create readable event for node[%s] SYNC: %s (fd=%d)",
             srnode->addr, strerror(errno), fd);
@@ -1916,7 +1909,7 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
     rr->repl_transfer_size = -1;
     rr->repl_transfer_read = 0;
     rr->repl_transfer_last_fsync_off = 0;
-    rr->repl_lastio = read_data->unixtime;
+    rr->repl_lastio = rdata->unixtime;
 
     //Prepare rdb file for recieve rdb data
     if(rdb->type == REDIS_RDB_TYPE_FILE && rdb->fd < 0){
@@ -1972,7 +1965,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     int port;
     sds *ip_port = NULL;
     int ip_port_count = 0;
-    read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     redis_repl *rr = srnode->rr;
     tcp_context *tc = srnode->tc;
 
@@ -2000,7 +1993,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     ip_port = NULL;
     ip_port_count = 0;
     
-    if (aeCreateFileEvent(read_data->loop, tc->sd, 
+    if (aeCreateFileEvent(rdata->loop, tc->sd, 
         AE_READABLE|AE_WRITABLE,rmtSyncRedisMaster,srnode) == AE_ERR) {
         log_error("ERROR: can't create readable event for %s rmtSyncRedisMaster.", 
                 srnode->addr);
@@ -2008,7 +2001,7 @@ int rmtConnectRedisMaster(redis_node *srnode)
     }
 
     rr->repl_state = REDIS_REPL_CONNECTING;
-    rr->repl_lastio = read_data->unixtime;
+    rr->repl_lastio = rdata->unixtime;
     
     return RMT_OK;
 
@@ -2024,7 +2017,7 @@ error:
 void redisSlaveReplCorn(redis_node *srnode)
 {
     int ret;
-    read_thread_data *rdata = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
     redis_group *srgroup = srnode->owner;
@@ -5874,7 +5867,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     int ret;
     uint32_t i;
     redis_rdb *rdb = srnode->rdb;
-    write_thread_data *wdata = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     redis_group *trgroup = wdata->trgroup;
     char buf[20];
     size_t len;
@@ -6109,14 +6102,14 @@ int redis_parse_rdb_time(aeEventLoop *el, long long id, void *privdata)
 {
     int ret;
     redis_node *srnode = privdata;
-    write_thread_data *write_data = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     redis_rdb *rdb = srnode->rdb;
 
     ret = redis_parse_rdb_file(srnode, 10);
     if(ret == RMT_AGAIN){
         return 1;
     }else if(ret == RMT_OK){
-        ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
+        ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
             log_error("ERROR: Create ae read event for node %s parse_request failed", 
@@ -6136,7 +6129,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     int ret;
     redis_node *srnode = privdata;
-    write_thread_data *write_data = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     redis_rdb *rdb = srnode->rdb;
     rmtContext *ctx = srnode->ctx;
 
@@ -6146,7 +6139,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(mask);
 
     ASSERT(fd == srnode->sk_event);
-    ASSERT(el == write_data->loop);
+    ASSERT(el == wdata->loop);
 
     ret = redis_parse_rdb_file(srnode, ctx->step);
     if(ret == RMT_AGAIN){
@@ -6154,14 +6147,14 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
     } else if(ret == RMT_OK) {
         redis_group *srgroup = srnode->owner;
         
-        aeDeleteFileEvent(write_data->loop, 
+        aeDeleteFileEvent(wdata->loop, 
             srnode->sk_event, AE_WRITABLE);
 
         if (srgroup->kind == GROUP_TYPE_RDBFILE) {
             return;
         }
 
-        ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
+        ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
             log_error("ERROR: Create ae read event for node %s parse_request failed", 
@@ -6171,7 +6164,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
 
         notice_write_thread(srnode);
     }else{
-        aeDeleteFileEvent(write_data->loop, 
+        aeDeleteFileEvent(wdata->loop, 
             srnode->sk_event, AE_WRITABLE);
         log_error("ERROR: Rdb file for node[%s] parsed failed", srnode->addr);
     }

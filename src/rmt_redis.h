@@ -1,6 +1,13 @@
 #ifndef _RMT_REDIS_H_
 #define _RMT_REDIS_H_
 
+/* Object types */
+#define REDIS_STRING    0
+#define REDIS_LIST      1
+#define REDIS_SET       2
+#define REDIS_ZSET      3
+#define REDIS_HASH      4
+
 #define REDIS_RDB_MBUF_BASE_SIZE        4096
 #define REDIS_CMD_MBUF_BASE_SIZE        512
 #define REDIS_RESPONSE_MBUF_BASE_SIZE   128
@@ -135,8 +142,8 @@ typedef struct redis_node{
     char *addr;
     tcp_context *tc;
 
-    struct read_thread_data *read_data;
-    struct write_thread_data *write_data;
+    struct thread_data *read_data;
+    struct thread_data *write_data;
 
     redis_repl *rr;         	/* used to replication from source redis. */
     redis_rdb *rdb;         	/* used to cache rdb from the source redis. */

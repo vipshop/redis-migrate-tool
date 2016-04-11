@@ -9,61 +9,137 @@ static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mas
 static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
 static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
 
-static int read_thread_data_init(read_thread_data *rdata)
+int thread_data_init(thread_data *tdata)
+{
+    if (tdata == NULL) {
+        return RMT_ERROR;
+    }
+    
+    tdata->id = 0;
+	tdata->thread_id = 0;
+	tdata->loop = NULL;
+    tdata->unixtime = rmt_msec_now();
+
+    tdata->ctx = NULL;
+    tdata->srgroup = NULL;
+    tdata->trgroup = NULL;
+
+    tdata->nodes = NULL;
+    tdata->nodes_count = 0;
+    tdata->notice_pipe[0] = -1;
+    tdata->notice_pipe[1] = -1;
+
+    tdata->keys_count = 0;
+    tdata->checked_keys_count = 0;
+
+    tdata->data = NULL;
+    
+    tdata->stat_total_msgs_recv = 0;
+    tdata->stat_total_msgs_sent = 0;
+    tdata->stat_total_net_input_bytes = 0;
+    tdata->stat_total_net_output_bytes = 0;
+    tdata->stat_rdb_parsed_count = 0;
+    tdata->stat_mbufs_inqueue = 0;    
+    tdata->stat_msgs_outqueue = 0;
+
+    return RMT_OK;
+}
+
+void thread_data_deinit(thread_data *tdata)
+{
+    if (tdata == NULL) {
+        return;
+    }
+    
+    tdata->id = 0;
+	tdata->thread_id = 0;
+    if (tdata->loop != NULL) {
+        aeDeleteEventLoop(tdata->loop);
+        tdata->loop = NULL;
+    }
+    tdata->unixtime = 0;
+
+    tdata->ctx = NULL;
+    if (tdata->srgroup != NULL) {
+        target_group_destroy(tdata->srgroup);
+        tdata->srgroup = NULL;
+    }
+    if (tdata->trgroup != NULL) {
+        target_group_destroy(tdata->trgroup);
+        tdata->trgroup = NULL;
+    }
+
+    if (tdata->nodes != NULL) {
+		listRelease(tdata->nodes);
+		tdata->nodes = NULL;
+	}
+    tdata->nodes_count = 0;
+    if (tdata->notice_pipe[0] > 0) {
+        close(tdata->notice_pipe[0]);
+        tdata->notice_pipe[0] = -1;
+    }
+    if (tdata->notice_pipe[1] > 0) {
+        close(tdata->notice_pipe[1]);
+        tdata->notice_pipe[1] = -1;
+    }
+
+    tdata->keys_count = 0;
+    tdata->checked_keys_count = 0;
+    
+    tdata->stat_total_msgs_recv = 0;
+    tdata->stat_total_msgs_sent = 0;
+    tdata->stat_total_net_input_bytes = 0;
+    tdata->stat_total_net_output_bytes = 0;
+    tdata->stat_rdb_parsed_count = 0;
+    tdata->stat_mbufs_inqueue = 0;    
+    tdata->stat_msgs_outqueue = 0;
+
+    return;
+}
+
+static void read_thread_data_deinit(thread_data *rdata);
+
+static int read_thread_data_init(thread_data *rdata)
 {
 	if (rdata == NULL) {
 		return RMT_ERROR;
 	}
 
-    rdata->id = 0;
-	rdata->thread_id = 0;
-    rdata->finish_read_nodes = 0;
-    rdata->nodes_count = 0;
-    rdata->loop = NULL;
-    rdata->unixtime = rmt_msec_now();
-    rdata->nodes_data = NULL;
-    rdata->stat_total_net_input_bytes = 0;
+    thread_data_init(rdata);
 
     rdata->loop = aeCreateEventLoop(1000);
     if (rdata->loop == NULL) {
     	log_error("ERROR: create event loop failed");
-        return RMT_ERROR;
+        goto error;
     }
     
-	rdata->nodes_data = listCreate();
-	if (rdata->nodes_data == NULL) {
+	rdata->nodes = listCreate();
+	if (rdata->nodes == NULL) {
 		log_error("ERROR: create node list failed: out of memory");
-		return RMT_ENOMEM;
+		goto error;
 	}
 
     if (aeCreateTimeEvent(rdata->loop, 1, readThreadCron, rdata, NULL) == AE_ERR) {
         log_error("ERROR: can't create the readThreadCron time event.");
-        return RMT_ERROR;
+        goto error;
     }
 	
 	return RMT_OK;
+
+error:
+
+    read_thread_data_deinit(rdata);
+    return RMT_ERROR;
 }
 
-static void read_thread_data_deinit(read_thread_data *rdata)
+static void read_thread_data_deinit(thread_data *rdata)
 {
-	if (rdata == NULL) {
-		return;
-	}
-
-    if (rdata->loop != NULL) {
-		aeDeleteEventLoop(rdata->loop);
-		rdata->loop = NULL;
-	}
-
-	if (rdata->nodes_data != NULL) {
-		listRelease(rdata->nodes_data);
-		rdata->nodes_data = NULL;
-	}
+    thread_data_deinit(rdata);
 }
 
-static void write_thread_data_deinit(write_thread_data *wdata);
+static void write_thread_data_deinit(thread_data *wdata);
 
-static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
+static int write_thread_data_init(rmtContext *ctx, thread_data *wdata)
 {
     int ret;
     dictIterator *di;
@@ -74,22 +150,7 @@ static int write_thread_data_init(rmtContext *ctx, write_thread_data *wdata)
 		return RMT_ERROR;
 	}
 
-    wdata->id = 0;
-	wdata->thread_id = 0;
-    wdata->finish_write_nodes = 0;
-    wdata->nodes_count = 0;
-	wdata->loop = NULL;
-    wdata->unixtime = rmt_msec_now();
-    wdata->trgroup = NULL;
-    wdata->nodes = NULL;
-    wdata->notice_pipe[0] = -1;
-    wdata->notice_pipe[1] = -1;
-    wdata->stat_total_msgs_recv = 0;
-    wdata->stat_total_msgs_sent = 0;
-    wdata->stat_total_net_output_bytes = 0;
-    wdata->stat_rdb_parsed_count = 0;
-    wdata->stat_mbufs_inqueue = 0;    
-    wdata->stat_msgs_outqueue = 0;
+    thread_data_init(wdata);
 
 	wdata->loop = aeCreateEventLoop(1000);
     if (wdata->loop == NULL) {
@@ -149,46 +210,14 @@ error:
     return RMT_ERROR;
 }
 
-static void write_thread_data_deinit(write_thread_data *wdata)
+static void write_thread_data_deinit(thread_data *wdata)
 {
-	if(wdata == NULL)
-	{
-		return;
-	}
-
-	if(wdata->loop != NULL)
-	{
-		aeDeleteEventLoop(wdata->loop);
-		wdata->loop = NULL;
-	}
-
-    if(wdata->nodes != NULL)
-	{
-		listRelease(wdata->nodes);
-		wdata->nodes = NULL;
-	}
-
-    if(wdata->trgroup != NULL){
-        target_group_destroy(wdata->trgroup);
-        wdata->trgroup = NULL;
-    }
-
-    if(wdata->notice_pipe[0] > 0)
-    {
-        close(wdata->notice_pipe[0]);
-        wdata->notice_pipe[0] = -1;
-    }
-
-    if(wdata->notice_pipe[1] > 0)
-    {
-        close(wdata->notice_pipe[1]);
-        wdata->notice_pipe[1] = -1;
-    }
+	thread_data_deinit(wdata);
 }
 
 static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
 {
-    read_thread_data *rdata = clientData;
+    thread_data *rdata = clientData;
     listIter *li;
     listNode *ln;
     redis_node *srnode;
@@ -203,7 +232,7 @@ static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *cli
     rdata->unixtime = rmt_msec_now();
 
     //Check error connection
-    li = listGetIterator(rdata->nodes_data, AL_START_HEAD);
+    li = listGetIterator(rdata->nodes, AL_START_HEAD);
     while ((ln = listNext(li)) != NULL) {
         srnode = listNodeValue(ln);
         redisSlaveReplCorn(srnode);
@@ -216,7 +245,7 @@ static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *cli
 static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
 {
     int ret;
-    write_thread_data *wdata = clientData;
+    thread_data *wdata = clientData;
     redis_group *trgroup = wdata->trgroup;
     rmtContext *ctx = trgroup->ctx;
     dictIterator *di;
@@ -378,8 +407,8 @@ static int read_write_threads_create(rmtContext *ctx,
     int node_count;
     struct array instances_by_host;
     list *instances;
-    read_thread_data *read_data, *read_data_min_rnodes;
-    write_thread_data *write_data, *write_data_min_rnodes;
+    thread_data *rdata, *rdata_min_rnodes;
+    thread_data *wdata, *wdata_min_rnodes;
     redis_node *srnode, *rnode, *pre_node;
     dictIterator *di = NULL;
     dictEntry *de;
@@ -431,63 +460,63 @@ static int read_write_threads_create(rmtContext *ctx,
     array_sort(&instances_by_host, instances_by_address_count_cmp);
 
     if (array_n(&instances_by_host) <= read_thread_count) {
-        ret = array_init(read_threads,array_n(&instances_by_host),sizeof(read_thread_data));
+        ret = array_init(read_threads,array_n(&instances_by_host),sizeof(thread_data));
         if (ret != RMT_OK) {
             goto error;
         }
 
         for (i = 0; i < array_n(&instances_by_host); i ++) {
             instances = array_get(&instances_by_host, i);
-            read_data = array_push(read_threads);
-    		ret = read_thread_data_init(read_data);
+            rdata = array_push(read_threads);
+    		ret = read_thread_data_init(rdata);
     		if (ret != RMT_OK) {
     			goto error;
     		}
 
-            read_data->id = i;
+            rdata->id = i;
 
-            read_data->nodes_count = listLength(instances);
+            rdata->nodes_count = listLength(instances);
             lnode = instances->head;
             while (lnode) {
                 rnode = lnode->value;
                 lnode = lnode->next;
-                listAddNodeTail(read_data->nodes_data, rnode);
-                rnode->read_data = read_data;
+                listAddNodeTail(rdata->nodes, rnode);
+                rnode->read_data = rdata;
             }
         }
 
         read_finish = 1;
     } else {
-        ret = array_init(read_threads,read_thread_count,sizeof(read_thread_data));
+        ret = array_init(read_threads,read_thread_count,sizeof(thread_data));
         if (ret != RMT_OK) {
             goto error;
         }
     }
 
     if (array_n(&instances_by_host) <= write_thread_count) {
-        ret = array_init(write_threads,array_n(&instances_by_host),sizeof(write_thread_data));
+        ret = array_init(write_threads,array_n(&instances_by_host),sizeof(thread_data));
         if (ret != RMT_OK) {
             goto error;
         }
 
         for (i = 0; i < array_n(&instances_by_host); i ++) {
             instances = array_get(&instances_by_host, i);
-            write_data = array_push(write_threads);
-    		ret = write_thread_data_init(ctx, write_data);
+            wdata = array_push(write_threads);
+    		ret = write_thread_data_init(ctx, wdata);
     		if (ret != RMT_OK) {
     			goto error;
     		}
 
-            write_data->id = i;
+            wdata->id = i;
 
-            write_data->nodes_count = listLength(instances);
+            wdata->nodes_count = listLength(instances);
             pre_node = NULL;
             lnode = instances->head;
             while (lnode) {
                 rnode = lnode->value;
                 lnode = lnode->next;
-                listAddNodeTail(write_data->nodes, rnode);
-                rnode->write_data = write_data;
+                listAddNodeTail(wdata->nodes, rnode);
+                rnode->write_data = wdata;
                 
                 if (pre_node) {
                     ASSERT(pre_node->next == NULL);
@@ -496,14 +525,14 @@ static int read_write_threads_create(rmtContext *ctx,
 
                 pre_node = rnode;
 
-                ret = aeCreateFileEvent(write_data->loop, rnode->notice_pipe[0], 
+                ret = aeCreateFileEvent(wdata->loop, rnode->notice_pipe[0], 
                     AE_READABLE, parse_prepare, rnode);
                 if(ret != AE_OK)
                 {
                     log_error("ERROR: Create readable notice event for node[%s] fd %d "
                         "on the write thread %ld failed: %s",
                         rnode->addr, rnode->notice_pipe[0],
-                        write_data->thread_id, strerror(errno));        
+                        wdata->thread_id, strerror(errno));        
                     goto error;
                 }
             }
@@ -511,7 +540,7 @@ static int read_write_threads_create(rmtContext *ctx,
 
         write_finish = 1;
     } else {
-        ret = array_init(write_threads,write_thread_count,sizeof(write_thread_data));
+        ret = array_init(write_threads,write_thread_count,sizeof(thread_data));
         if (ret != RMT_OK) {
             goto error;
         }
@@ -526,66 +555,66 @@ static int read_write_threads_create(rmtContext *ctx,
 
         if (!read_finish) {
             if (array_n(read_threads) < read_thread_count) {
-                read_data = array_push(read_threads);
-                ret = read_thread_data_init(read_data);
+                rdata = array_push(read_threads);
+                ret = read_thread_data_init(rdata);
         		if (ret != RMT_OK) {
         			goto error;
         		}
 
-                read_data->id = i;
+                rdata->id = i;
                 
-                read_data->nodes_count = listLength(instances);
+                rdata->nodes_count = listLength(instances);
                 lnode = instances->head;
                 while (lnode) {
                     rnode = lnode->value;
                     lnode = lnode->next;
-                    listAddNodeTail(read_data->nodes_data, rnode);
-                    rnode->read_data = read_data;
+                    listAddNodeTail(rdata->nodes, rnode);
+                    rnode->read_data = rdata;
                 }
             } else {
-                read_data_min_rnodes = NULL;
+                rdata_min_rnodes = NULL;
                 for (j = 0; j < array_n(read_threads); j ++) {
-                    read_data = array_get(read_threads, j);
-                    if (read_data_min_rnodes == NULL) {
-                        read_data_min_rnodes = read_data;
+                    rdata = array_get(read_threads, j);
+                    if (rdata_min_rnodes == NULL) {
+                        rdata_min_rnodes = rdata;
                         continue;
                     }
 
-                    if(listLength(read_data_min_rnodes->nodes_data) > 
-                        listLength(read_data->nodes_data)) {
-                        read_data_min_rnodes = read_data;
+                    if(listLength(rdata_min_rnodes->nodes) > 
+                        listLength(rdata->nodes)) {
+                        rdata_min_rnodes = rdata;
                     }
                 }
 
-                read_data_min_rnodes->nodes_count += listLength(instances);
+                rdata_min_rnodes->nodes_count += listLength(instances);
                 lnode = instances->head;
                 while (lnode) {
                     rnode = lnode->value;
                     lnode = lnode->next;
-                    listAddNodeTail(read_data_min_rnodes->nodes_data, rnode);
-                    rnode->read_data = read_data_min_rnodes;
+                    listAddNodeTail(rdata_min_rnodes->nodes, rnode);
+                    rnode->read_data = rdata_min_rnodes;
                 }
             }
         }
 
         if (!write_finish) {
             if (array_n(write_threads) < write_thread_count) {
-                write_data = array_push(write_threads);
-        		ret = write_thread_data_init(ctx, write_data);
+                wdata = array_push(write_threads);
+        		ret = write_thread_data_init(ctx, wdata);
         		if (ret != RMT_OK) {
         			goto error;
         		}
 
-                write_data->id = i;
+                wdata->id = i;
 
-                write_data->nodes_count = listLength(instances);
+                wdata->nodes_count = listLength(instances);
                 pre_node = NULL;
                 lnode = instances->head;
                 while (lnode) {
                     rnode = lnode->value;
                     lnode = lnode->next;
-                    listAddNodeTail(write_data->nodes, rnode);
-                    rnode->write_data = write_data;
+                    listAddNodeTail(wdata->nodes, rnode);
+                    rnode->write_data = wdata;
                     
                     if (pre_node) {
                         ASSERT(pre_node->next == NULL);
@@ -593,39 +622,39 @@ static int read_write_threads_create(rmtContext *ctx,
                     }
 
                     pre_node = rnode;
-                    ret = aeCreateFileEvent(write_data->loop, rnode->notice_pipe[0], 
+                    ret = aeCreateFileEvent(wdata->loop, rnode->notice_pipe[0], 
                         AE_READABLE, parse_prepare, rnode);
                     if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
-                            write_data->thread_id, strerror(errno));        
+                            wdata->thread_id, strerror(errno));        
                         goto error;
                     }
                 }
             } else {
-                write_data_min_rnodes = NULL;
+                wdata_min_rnodes = NULL;
                 for (j = 0; j < array_n(write_threads); j ++) {
-                    write_data = array_get(write_threads, j);
-                    if (write_data_min_rnodes == NULL) {
-                        write_data_min_rnodes = write_data;
+                    wdata = array_get(write_threads, j);
+                    if (wdata_min_rnodes == NULL) {
+                        wdata_min_rnodes = wdata;
                         continue;
                     }
 
-                    if (listLength(write_data_min_rnodes->nodes) > 
-                        listLength(write_data->nodes)) {
-                        write_data_min_rnodes = write_data;
+                    if (listLength(wdata_min_rnodes->nodes) > 
+                        listLength(wdata->nodes)) {
+                        wdata_min_rnodes = wdata;
                     }
                 }
 
-                write_data_min_rnodes->nodes_count += listLength(instances);
-                pre_node = listLastValue(write_data_min_rnodes->nodes);
+                wdata_min_rnodes->nodes_count += listLength(instances);
+                pre_node = listLastValue(wdata_min_rnodes->nodes);
                 lnode = instances->head;
                 while (lnode) {
                     rnode = lnode->value;
                     lnode = lnode->next;
-                    listAddNodeTail(write_data_min_rnodes->nodes, rnode);
-                    rnode->write_data = write_data_min_rnodes;
+                    listAddNodeTail(wdata_min_rnodes->nodes, rnode);
+                    rnode->write_data = wdata_min_rnodes;
 
                     if (pre_node) {
                         ASSERT(pre_node->next == NULL);
@@ -633,14 +662,14 @@ static int read_write_threads_create(rmtContext *ctx,
                     }
 
                     pre_node = rnode;
-                    ret = aeCreateFileEvent(write_data_min_rnodes->loop, 
+                    ret = aeCreateFileEvent(wdata_min_rnodes->loop, 
                         rnode->notice_pipe[0], 
                         AE_READABLE, parse_prepare, rnode);
                     if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
                             rnode->addr, rnode->notice_pipe[0],
-                            write_data_min_rnodes->thread_id, 
+                            wdata_min_rnodes->thread_id, 
                             strerror(errno));        
                         goto error;
                     }
@@ -685,8 +714,8 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
     int i, k;
     int modulo, remainders, add_one_count;
     int begin, step;
-    struct array *read_datas = NULL; //type : read_thread_data
-    read_thread_data *read_data;
+    struct array *read_datas = NULL; //type : thread_data
+    thread_data *rdata;
     dict *srnodes = srgroup->nodes;
     redis_node *srnode;
     dictIterator *di = NULL;
@@ -699,7 +728,7 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
     ASSERT(node_count == (int)(dictSize(srnodes)));
 
     read_datas = array_create((uint32_t)read_threads_count, 
-		sizeof(read_thread_data));
+		sizeof(thread_data));
     if(read_datas == NULL)
     {
         log_stdout("create read thread data failed: out of memory");
@@ -720,16 +749,16 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
     di = dictGetIterator(srnodes);
 	for(i = 0; i < read_threads_count; i ++)
 	{
-		read_data = array_push(read_datas);
-		ret = read_thread_data_init(read_data);
+		rdata = array_push(read_datas);
+		ret = read_thread_data_init(rdata);
 		if(ret != RMT_OK)
 		{
 			goto error;
 		}
 
-        read_data->id = i;
+        rdata->id = i;
 
-        read_data->nodes_count = step;
+        rdata->nodes_count = step;
 		for(k = begin; k < begin + step; k ++)
 		{   
 		    de = dictNext(di);
@@ -744,8 +773,8 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
                 goto error;
             }
             
-			listAddNodeTail(read_data->nodes_data, srnode);
-            srnode->read_data = read_data;
+			listAddNodeTail(rdata->nodes, srnode);
+            srnode->read_data = rdata;
 		}
 
 		begin += step;
@@ -776,7 +805,7 @@ error:
 
 static void read_threads_destroy(struct array *read_datas)
 {
-    read_thread_data *read_data;
+    thread_data *rdata;
 
     if(read_datas == NULL)
     {
@@ -785,8 +814,8 @@ static void read_threads_destroy(struct array *read_datas)
     
     while(array_n(read_datas) > 0)
     {
-        read_data = array_pop(read_datas);
-        read_thread_data_deinit(read_data);
+        rdata = array_pop(read_datas);
+        read_thread_data_deinit(rdata);
     }
     
     array_destroy(read_datas);
@@ -799,8 +828,8 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
     int i, k;
     int modulo, remainders, add_one_count;
     int begin, step;
-    struct array *write_datas = NULL; //type : write_thread_data
-    write_thread_data *write_data;
+    struct array *write_datas = NULL; //type : thread_data
+    thread_data *wdata;
     dict *srnodes = srgroup->nodes;
     redis_node *srnode, *pre_node = NULL;
     dictIterator *di = NULL;
@@ -813,7 +842,7 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
     ASSERT(node_count == (int)(dictSize(srnodes)));
     
     write_datas = array_create((uint32_t)write_threads_count, 
-		sizeof(write_thread_data));
+		sizeof(thread_data));
     if(write_datas == NULL)
     {
         log_error("ERROR: out of memory");
@@ -835,16 +864,16 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
     
     for(i = 0; i < write_threads_count; i ++)
     {
-    	write_data = array_push(write_datas);
-    	ret = write_thread_data_init(ctx, write_data);
+    	wdata = array_push(write_datas);
+    	ret = write_thread_data_init(ctx, wdata);
     	if(ret != RMT_OK)
     	{
     		goto error;
     	}
 
-        write_data->id = i;
+        wdata->id = i;
         
-        write_data->nodes_count = step;
+        wdata->nodes_count = step;
     	for(k = begin; k < begin + step; k ++)
     	{
     		de = dictNext(di);
@@ -859,8 +888,8 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
                 goto error;
             }
 
-            listAddNodeTail(write_data->nodes, srnode);
-            srnode->write_data = write_data;
+            listAddNodeTail(wdata->nodes, srnode);
+            srnode->write_data = wdata;
 
             if(pre_node != NULL){
                 ASSERT(pre_node->next == NULL);
@@ -869,14 +898,14 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
 
             pre_node = srnode;
 
-            ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
+            ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
                 AE_READABLE, parse_prepare, srnode);
             if(ret != AE_OK)
             {
                 log_error("ERROR: create readable notice event for node[%s] fd %d "
                     "on the write thread %ld failed: %s",
                     srnode->addr, srnode->notice_pipe[0],
-                    write_data->thread_id, strerror(errno));        
+                    wdata->thread_id, strerror(errno));        
                 goto error;
             }
     	}
@@ -909,7 +938,7 @@ error:
 
 static void write_threads_destroy(struct array *write_datas)
 {
-    write_thread_data *write_data;
+    thread_data *wdata;
 
     if(write_datas == NULL)
     {
@@ -918,8 +947,8 @@ static void write_threads_destroy(struct array *write_datas)
     
     while(array_n(write_datas) > 0)
     {
-        write_data = array_pop(write_datas);
-        write_thread_data_deinit(write_data);
+        wdata = array_pop(write_datas);
+        write_thread_data_deinit(wdata);
     }
     
     array_destroy(write_datas);
@@ -927,13 +956,13 @@ static void write_threads_destroy(struct array *write_datas)
 
 static void *read_thread_run_old(void *args)
 {
-    read_thread_data *read_data = args;
-    list *nodes_data = read_data->nodes_data;  //type : source redis_node
+    thread_data *rdata = args;
+    list *nodes = rdata->nodes;  //type : source redis_node
     redis_node *srnode;
     listNode *lnode;
     listIter *it;
 
-    it = listGetIterator(nodes_data, AL_START_HEAD);
+    it = listGetIterator(nodes, AL_START_HEAD);
     while((lnode = listNext(it)) != NULL)
     {
     	srnode = listNodeValue(lnode);
@@ -942,7 +971,7 @@ static void *read_thread_run_old(void *args)
     
     listReleaseIterator(it);
 
-    aeMain(read_data->loop);
+    aeMain(rdata->loop);
 
     return 0;
 }
@@ -951,14 +980,14 @@ static void begin_replication(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     char c[1];
     redis_node *srnode = privdata;
-    read_thread_data *read_data = srnode->read_data;
+    thread_data *rdata = srnode->read_data;
     
     RMT_NOTUSED(el);
     RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
 
-    ASSERT(read_data->loop == el);
+    ASSERT(rdata->loop == el);
     ASSERT(srnode->notice_read_pipe[0] == fd);
 
     rmt_read(srnode->notice_read_pipe[0], c , 1);
@@ -977,23 +1006,23 @@ static void begin_replication(aeEventLoop *el, int fd, void *privdata, int mask)
 static void *read_thread_run(void *args)
 {
     int ret;
-    read_thread_data *read_data = args;
-    list *nodes_data = read_data->nodes_data;  //type : source redis_node
+    thread_data *rdata = args;
+    list *nodes = rdata->nodes;  //type : source redis_node
     redis_node *srnode;
     listNode *lnode;
     listIter *it;
 
-    it = listGetIterator(nodes_data, AL_START_HEAD);
+    it = listGetIterator(nodes, AL_START_HEAD);
     while((lnode = listNext(it)) != NULL){
     	srnode = listNodeValue(lnode);
-        ret = aeCreateFileEvent(read_data->loop, srnode->notice_read_pipe[0], 
+        ret = aeCreateFileEvent(rdata->loop, srnode->notice_read_pipe[0], 
                 AE_READABLE, begin_replication, srnode);
         if(ret != AE_OK)
         {
             log_error("ERROR: Create readable notice event for node[%s] fd %d "
                 "to begin replication on the read thread %ld failed: %s",
                 srnode->addr, srnode->notice_read_pipe[0],
-                read_data->thread_id, strerror(errno));
+                rdata->thread_id, strerror(errno));
             listReleaseIterator(it);
             exit(0);
         }
@@ -1001,7 +1030,7 @@ static void *read_thread_run(void *args)
     
     listReleaseIterator(it);
 
-    aeMain(read_data->loop);
+    aeMain(rdata->loop);
 
     return 0;
 }
@@ -1009,15 +1038,15 @@ static void *read_thread_run(void *args)
 static void *write_thread_run(void *args)
 {
     int ret;
-    write_thread_data *write_data = args;
-    list *nodes = write_data->nodes;  //type : source redis_node
+    thread_data *wdata = args;
+    list *nodes = wdata->nodes;  //type : source redis_node
     redis_node *srnode;
     redis_group *srgroup;
 
     srnode = listFirstValue(nodes);
     if(srnode == NULL){
         log_error("ERROR: No redis nodes for this write thread %ld", 
-            write_data->thread_id);
+            wdata->thread_id);
         return 0;
     }
 
@@ -1040,7 +1069,7 @@ static void *write_thread_run(void *args)
             }
             
             srnode->timestamp = rmt_msec_now();
-            ret = aeCreateFileEvent(write_data->loop, srnode->sk_event, 
+            ret = aeCreateFileEvent(wdata->loop, srnode->sk_event, 
                 AE_WRITABLE, redis_parse_rdb, srnode);
             if(ret == AE_ERR)
             {
@@ -1053,13 +1082,13 @@ static void *write_thread_run(void *args)
         
         listReleaseIterator(it);
         
-        aeMain(write_data->loop);
+        aeMain(wdata->loop);
         return 0;
     }
 
     rmt_write(srnode->notice_read_pipe[1], " ", 1);
 
-    aeMain(write_data->loop);
+    aeMain(wdata->loop);
 
     return 0;
 }
@@ -1091,7 +1120,7 @@ static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mas
     int ret;
     redis_node *trnode = privdata;
     tcp_context *tc = trnode->tc;
-    write_thread_data *wdata = trnode->write_data;
+    thread_data *wdata = trnode->write_data;
     listNode *lnode_node, *lnode_msg, *lnode_mbuf;
     list send_msgl;                      /* send msg list */
     struct iovec *ciov, iov[RMT_IOV_MAX];
@@ -1127,7 +1156,7 @@ again:
     
     lnode_msg = listFirst(trnode->send_data);
     
-    while(lnode_msg != NULL && !stop){
+    while (lnode_msg != NULL && !stop) {
         
         msg = listNodeValue(lnode_msg);
         ASSERT(msg != NULL);
@@ -1135,10 +1164,10 @@ again:
         listAddNodeTail(&send_msgl, lnode_msg);
 
         lnode_mbuf = listFirst(msg->data);
-        while(lnode_mbuf != NULL){
+        while (lnode_mbuf != NULL) {
 
-            if(array_n(&sendv) >= RMT_IOV_MAX || 
-                nsend >= limit){
+            if (array_n(&sendv) >= RMT_IOV_MAX || 
+                nsend >= limit) {
                 stop = 1;
                 break;
             }
@@ -1169,7 +1198,7 @@ again:
 
     if (listLength(&send_msgl) > 0 && nsend != 0) {
         n = rmt_sendv(fd, &sendv, nsend);
-        if(n == RMT_ERROR){
+        if (n == RMT_ERROR) {
             log_error("ERROR: errors on connection with node[%s]", trnode->addr);
 
             //disconnect it and it will reconnect at the writeThreadCron
@@ -1177,10 +1206,10 @@ again:
             target_node_close(trnode);
         }
 
-        if(n < (ssize_t)nsend){
+        if (n < (ssize_t)nsend) {
             send_again = 0;
         }
-    }else{
+    } else {
         n = 0;
     }
 
@@ -1354,7 +1383,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
 {
     int ret;
     rmtContext *ctx = srnode->ctx;
-    write_thread_data *wdata = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     redis_group *trgroup = wdata->trgroup;
     tcp_context *tc = trnode->tc;
 
@@ -1409,9 +1438,9 @@ static int prepare_send_data(redis_node *srnode)
     int ret;
     struct msg *msg, *sub_msg;
     struct keypos *kp;
-    write_thread_data *write_data = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     rmtContext *ctx = srnode->ctx;
-    redis_group *trgroup = write_data->trgroup;
+    redis_group *trgroup = wdata->trgroup;
     list frag_msgl;
     uint32_t slots;
     redis_node *trnode;
@@ -1497,7 +1526,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
 {
     int ret;
     struct msg *req;
-    write_thread_data *wdata = trnode->write_data;
+    thread_data *wdata = trnode->write_data;
     
     if(trnode == NULL || resp == NULL){
         return RMT_ERROR;
@@ -1532,7 +1561,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     int ret;
     redis_node *srnode = privdata;
-    write_thread_data *write_data = srnode->write_data;
+    thread_data *wdata = srnode->write_data;
     redis_rdb *rdb = srnode->rdb;
     
     RMT_NOTUSED(el);
@@ -1540,11 +1569,11 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
 
-    ASSERT(write_data->loop == el);
+    ASSERT(wdata->loop == el);
     ASSERT(srnode->notice_pipe[0] == fd);
 
     if (rdb->type == REDIS_RDB_TYPE_FILE) {
-        aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
+        aeDeleteFileEvent(wdata->loop, srnode->notice_pipe[0], AE_READABLE);
         
         if (srnode->sk_event < 0) {
             srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);
@@ -1556,7 +1585,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         }
 
         srnode->timestamp = rmt_msec_now();
-        ret = aeCreateFileEvent(write_data->loop, srnode->sk_event, 
+        ret = aeCreateFileEvent(wdata->loop, srnode->sk_event, 
             AE_WRITABLE, redis_parse_rdb, srnode);
         if (ret == AE_ERR) {
             log_error("ERROR: Create ae write event for node %s parse_request failed", 
@@ -1567,9 +1596,9 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         return;     
     }
 
-    aeDeleteFileEvent(write_data->loop, srnode->notice_pipe[0], AE_READABLE);
+    aeDeleteFileEvent(wdata->loop, srnode->notice_pipe[0], AE_READABLE);
     
-    ret = aeCreateFileEvent(write_data->loop, srnode->notice_pipe[0], 
+    ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
         AE_READABLE, parse_request, srnode);
     if (ret != AE_OK) {
         log_error("ERROR: Create ae read event for node %s parse_request failed", 
@@ -1589,8 +1618,8 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     redis_repl *rr = srnode->rr;
     redis_rdb *rdb = srnode->rdb;
     redis_group *srgroup = srnode->owner;
-    write_thread_data *write_data = srnode->write_data;
-    redis_group *trgroup = write_data->trgroup;
+    thread_data *wdata = srnode->write_data;
+    redis_group *trgroup = wdata->trgroup;
     mttlist *data;
     struct msg *msg;
     struct mbuf *mbuf_f, *mbuf_t;
@@ -1603,7 +1632,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
 
-    ASSERT(el == write_data->loop);
+    ASSERT(el == wdata->loop);
     ASSERT(fd == srnode->notice_pipe[0]);
 
     log_debug(LOG_DEBUG, "parse_job %s", srnode->addr);
@@ -2071,10 +2100,10 @@ void redis_migrate(rmtContext *ctx, int type)
     int threads_hold_nodes_count, node_next_nodes_count;
     struct array *nodes = NULL;    //type: redis_node
     redis_group *srgroup = NULL;
-    struct array *read_datas = NULL; //type : read_thread_data
-    read_thread_data *read_data;
-    struct array *write_datas = NULL; //type : write_thread_data
-    write_thread_data *write_data;
+    struct array *read_datas = NULL; //type : thread_data
+    thread_data *rdata;
+    struct array *write_datas = NULL; //type : thread_data
+    thread_data *wdata;
     redis_node *rnode;
     listNode *lnode;
 
@@ -2165,26 +2194,26 @@ void redis_migrate(rmtContext *ctx, int type)
     //Check the read threads
     threads_hold_nodes_count = 0;
     for (i = 0; i < read_threads_count; i ++) {
-        read_data = array_get(read_datas, i);
-        threads_hold_nodes_count += read_data->nodes_count;
+        rdata = array_get(read_datas, i);
+        threads_hold_nodes_count += rdata->nodes_count;
         
-        log_notice("read thread(%d):", read_data->id);
-        lnode = read_data->nodes_data->head;
+        log_notice("read thread(%d):", rdata->id);
+        lnode = rdata->nodes->head;
         while (lnode) {
             rnode = lnode->value;
             lnode = lnode->next;
 
             log_notice("%s", rnode->addr);
-            if (rnode->read_data != read_data) {
+            if (rnode->read_data != rdata) {
                 log_error("Error: node %s read_data is not correct.", 
                     rnode->addr);
                 goto done;
             }
         }
 
-        if (listLength(read_data->nodes_data) != read_data->nodes_count) {
+        if (listLength(rdata->nodes) != rdata->nodes_count) {
             log_error("Error: listLength(read_data->nodes_data) %d != read_data->nodes_count %d.", 
-                    listLength(read_data->nodes_data), read_data->nodes_count);
+                    listLength(rdata->nodes), rdata->nodes_count);
             goto done;
         }
     }
@@ -2198,38 +2227,38 @@ void redis_migrate(rmtContext *ctx, int type)
     //Check the write threads
     threads_hold_nodes_count = 0;
     for (i = 0; i < write_threads_count; i ++) {
-        write_data = array_get(write_datas, i);
-        threads_hold_nodes_count += write_data->nodes_count;
+        wdata = array_get(write_datas, i);
+        threads_hold_nodes_count += wdata->nodes_count;
         
-        log_notice("write thread(%d):", write_data->id);
-        lnode = write_data->nodes->head;
+        log_notice("write thread(%d):", wdata->id);
+        lnode = wdata->nodes->head;
         while (lnode) {
             rnode = lnode->value;
             lnode = lnode->next;
 
             log_notice("%s", rnode->addr);
-            if (rnode->write_data != write_data) {
+            if (rnode->write_data != wdata) {
                 log_error("Error: node %s write_data is not correct.", 
                     rnode->addr);
                 goto done;
             }
         }
 
-        if (listLength(write_data->nodes) != write_data->nodes_count) {
+        if (listLength(wdata->nodes) != wdata->nodes_count) {
             log_error("Error: listLength(write_data->nodes) %d != write_data->nodes_count %d.", 
-                    listLength(write_data->nodes), write_data->nodes_count);
+                    listLength(wdata->nodes), wdata->nodes_count);
             goto done;
         }
 
         node_next_nodes_count = 0;
-        rnode = listFirstValue(write_data->nodes);
+        rnode = listFirstValue(wdata->nodes);
         while (rnode) {
             node_next_nodes_count ++;
             rnode = rnode->next;
         }
-        if (node_next_nodes_count != write_data->nodes_count) {
+        if (node_next_nodes_count != wdata->nodes_count) {
             log_error("Error: node_next_nodes_count %d != write_data->nodes_count %d.", 
-                listLength(write_data->nodes), write_data->nodes_count);
+                listLength(wdata->nodes), wdata->nodes_count);
             goto done;
         }
     }
@@ -2244,18 +2273,18 @@ void redis_migrate(rmtContext *ctx, int type)
 
     //Run the read job
     for(i = 0; i < read_threads_count; i ++){
-    	read_data = array_get(read_datas, (uint32_t)i);
+    	rdata = array_get(read_datas, (uint32_t)i);
 
-        pthread_create(&read_data->thread_id, 
-        	NULL, read_thread_run, read_data);
+        pthread_create(&rdata->thread_id, 
+        	NULL, read_thread_run, rdata);
     }
     
     //Run the write job
     for(i = 0; i < write_threads_count; i ++){
-        write_data = array_get(write_datas, (uint32_t)i);
+        wdata = array_get(write_datas, (uint32_t)i);
 
-        pthread_create(&write_data->thread_id, 
-            NULL, write_thread_run, write_data);
+        pthread_create(&wdata->thread_id, 
+            NULL, write_thread_run, wdata);
     }
 
     ret = proxy_begin(ctx);
@@ -2269,14 +2298,14 @@ void redis_migrate(rmtContext *ctx, int type)
 
 	//wait for the read job finish
 	for(i = 0; i < read_threads_count; i ++){
-		read_data = array_get(read_datas, (uint32_t)i);
-		pthread_join(read_data->thread_id, NULL);
+		rdata = array_get(read_datas, (uint32_t)i);
+		pthread_join(rdata->thread_id, NULL);
 	}
 
 	//wait for the write job finish
 	for(i = 0; i < write_threads_count; i ++){
-		write_data = array_get(write_datas, (uint32_t)i);
-		pthread_join(write_data->thread_id, NULL);
+		wdata = array_get(write_datas, (uint32_t)i);
+		pthread_join(wdata->thread_id, NULL);
 	}
 
 done:
@@ -2297,202 +2326,8 @@ done:
 
 void redis_compare(rmtContext *ctx, int type)
 {
-    int ret;
-    int i;
-    int node_count = 0;
-    int thread_count;
-    int read_threads_count, write_threads_count;
-    int threads_hold_nodes_count;
-    struct array *nodes = NULL;    //type: redis_node
-    redis_group *srgroup = NULL;
-    struct array *read_datas = NULL; //type : read_thread_data
-    read_thread_data *read_data;
-    struct array *write_datas = NULL; //type : write_thread_data
-    write_thread_data *write_data;
-    redis_node *rnode;
-    listNode *lnode;
-
+    RMT_NOTUSED(ctx);
     RMT_NOTUSED(type);
-
-    if (ctx == NULL || ctx->source_addr == NULL) {
-        goto done;
-    }
-
-    signal(SIGPIPE, SIG_IGN);
-    
-    thread_count = ctx->thread_count;
-    if (thread_count <= 0) {
-        log_error("ERROR: thread count <= 0");
-        return;
-    } else if(thread_count == 1) {
-        thread_count ++;
-	}
-
-    srgroup = source_group_create(ctx);
-    if(srgroup == NULL){
-        log_error("Error: Source redis group create failed");
-        goto done;
-    }
-
-    node_count = (int)dictSize(srgroup->nodes);
-
-    ret = assign_threads(node_count, thread_count, 
-        &read_threads_count, &write_threads_count);
-    if(ret != RMT_OK){
-        log_error("Error: Assign threads failed");
-        goto done;
-    }
-
-    //Create read and write threads data
-    if(!ctx->source_safe || srgroup->kind == GROUP_TYPE_RDBFILE){        
-        if(srgroup->kind == GROUP_TYPE_RDBFILE){
-            read_threads_count = 0;
-            write_threads_count = MIN(node_count,thread_count);
-        }
-
-        read_datas = read_threads_create_unsafe(read_threads_count, 
-            node_count, srgroup);
-        if(read_datas == NULL && read_threads_count > 0){
-            log_error("Error: Read threads create failed");
-            goto done;
-        }
-
-        write_datas = write_threads_create_unsafe(ctx, write_threads_count, 
-            node_count, srgroup);
-        if(write_datas == NULL){
-            log_error("Error: Write threads create failed");
-            goto done;
-        }
-    }else{
-        read_datas = rmt_alloc(sizeof(struct array));
-        if (read_datas == NULL) {
-            log_error("Error: Out of memory");
-            goto done;
-        }
-
-        array_null(read_datas);
-
-        write_datas = rmt_alloc(sizeof(struct array));
-        if (write_datas == NULL) {
-            log_error("Error: Out of memory");
-            goto done;
-        }
-
-        array_null(write_datas);
-        
-        ret = read_write_threads_create(ctx, srgroup->nodes, read_threads_count, 
-            write_threads_count, read_datas, write_datas);
-        if (ret != RMT_OK) {
-            log_error("Error: assign threads failed.");
-            goto done;
-        }
-    }
-
-    read_threads_count = read_datas?array_n(read_datas):0;
-    write_threads_count = write_datas?array_n(write_datas):0;
-
-    log_notice("Total threads count in fact: %d", 
-        read_threads_count+write_threads_count);
-    log_notice("Read threads count in fact: %d", read_threads_count);
-    log_notice("Write threads count in fact: %d", write_threads_count);
-
-    //Check the read threads
-    threads_hold_nodes_count = 0;
-    for (i = 0; i < read_threads_count; i ++) {
-        read_data = array_get(read_datas, i);
-        threads_hold_nodes_count += read_data->nodes_count;
-        
-        log_notice("read thread %d:", i);
-        lnode = read_data->nodes_data->head;
-        while (lnode) {
-            rnode = lnode->value;
-            lnode = lnode->next;
-
-            log_notice("%s", rnode->addr);
-            if (rnode->read_data != read_data) {
-                log_error("Error: node %s read_data is not correct.", 
-                    rnode->addr);
-                goto done;
-            }
-        }
-    }
-    if (threads_hold_nodes_count != node_count && 
-        srgroup->kind != GROUP_TYPE_RDBFILE) {
-        log_error("Error: read threads hold node count %s is wrong", 
-            threads_hold_nodes_count);
-        goto done;
-    }
-
-    //Check the write threads
-    threads_hold_nodes_count = 0;
-    for (i = 0; i < write_threads_count; i ++) {
-        write_data = array_get(write_datas, i);
-        threads_hold_nodes_count += write_data->nodes_count;
-        
-        log_notice("write thread %d:", i);
-        lnode = write_data->nodes->head;
-        while (lnode) {
-            rnode = lnode->value;
-            lnode = lnode->next;
-
-            log_notice("%s", rnode->addr);
-            if (rnode->write_data != write_data) {
-                log_error("Error: node %s write_data is not correct.", 
-                    rnode->addr);
-                goto done;
-            }
-        }
-    }
-    if (threads_hold_nodes_count != node_count) {
-        log_error("Error: write threads hold node count %s is wrong", 
-            threads_hold_nodes_count);
-        goto done;
-    }
-
-    //Run the read job
-    for(i = 0; i < read_threads_count; i ++){
-    	read_data = array_get(read_datas, (uint32_t)i);
-
-        pthread_create(&read_data->thread_id, 
-        	NULL, read_thread_run, read_data);
-    }
-    
-    //Run the write job
-    for(i = 0; i < write_threads_count; i ++){
-        write_data = array_get(write_datas, (uint32_t)i);
-
-        pthread_create(&write_data->thread_id, 
-            NULL, write_thread_run, write_data);
-    }
-
-    log_notice("migrate job is running...");
-
-	//wait for the read job finish
-	for(i = 0; i < read_threads_count; i ++){
-		read_data = array_get(read_datas, (uint32_t)i);
-		pthread_join(read_data->thread_id, NULL);
-	}
-
-	//wait for the write job finish
-	for(i = 0; i < write_threads_count; i ++){
-		write_data = array_get(write_datas, (uint32_t)i);
-		pthread_join(write_data->thread_id, NULL);
-	}
-
-done:
-
-    if(read_datas != NULL){
-        read_threads_destroy(read_datas);
-    }
-
-    if(write_datas != NULL){
-        write_threads_destroy(write_datas);
-    }
-
-    if(srgroup != NULL){
-        redis_group_deinit(srgroup);
-        rmt_free(srgroup);
-    }
 }
 
 static int do_command_in_group(redis_group *rgroup, int type)

@@ -199,9 +199,11 @@ struct msg {
     unsigned             noreply:1;       /* noreply? */
     unsigned             noforward:1;     /* not need forward (example: ping) */
 
+    unsigned             sent:1;          /* have send to target */
+
     int                  kind;
 
-    unsigned             sent:1;          /* have send to target */
+    void                 *ptr;
 };
 
 char *msg_type_string(msg_type_t type);
