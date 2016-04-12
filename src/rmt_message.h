@@ -5,6 +5,7 @@
 struct msg;
 struct rmtContext;
 struct redis_group;
+struct redis_node;
 
 typedef void (*msg_parse_t)(struct msg *);
 //typedef rstatus_t (*msg_add_auth_t)(struct context *ctx, struct conn *c_conn, struct conn *s_conn);
@@ -12,7 +13,7 @@ typedef int (*msg_add_auth_t)(void);
 typedef int (*msg_fragment_t)(struct redis_group *, struct msg *, uint32_t, list *);
 typedef void (*msg_coalesce_t)(struct msg *r);
 typedef int (*msg_reply_t)(struct msg *r);
-typedef int (*msg_resp_check_t)(struct msg *);
+typedef int (*msg_resp_check_t)(struct redis_node *, struct msg *);
 
 typedef enum msg_parse_result {
     MSG_PARSE_OK,                         /* parsing ok */
@@ -184,6 +185,8 @@ struct msg {
     uint32_t             rnarg;           /* running # arg used by parsing fsa (redis) */
     uint32_t             rlen;            /* running length in parsing fsa (redis) */
     uint32_t             integer;         /* integer reply value (redis) */
+    uint32_t             bulk_len;        /* bulk length in parsing fsa (redis) */
+    uint8_t              *bulk_start;     /* bulk start (redis) */
 
     struct msg           *frag_owner;     /* owner of fragment message */
     uint32_t             nfrag;           /* # fragment */
@@ -232,7 +235,9 @@ int msg_used_down(void);
 #endif
 
 int _msg_check(const char *file, int line, struct rmtContext *ctx, struct msg *msg, int panic);
-void _msg_dump(const char *file, int line, struct msg *msg, int level);
+void _msg_dump(const char *file, int line, struct msg *msg, int level, int begin);
+
+int msg_data_compare(struct msg *msg1, struct msg *msg2);
 
 #ifdef RMT_ASSERT_PANIC
 #define MSG_CHECK(_c, _x) do {                          \
@@ -247,15 +252,15 @@ void _msg_dump(const char *file, int line, struct msg *msg, int level);
 #endif
 
 #if (defined RMT_ASSERT_PANIC) || (defined RMT_ASSERT_LOG)
-#define MSG_DUMP(_m, _l) do {                           \
-    _msg_dump(__FILE__, __LINE__, _m, _l);              \
+#define MSG_DUMP(_m, _l, _b) do {                           \
+    _msg_dump(__FILE__, __LINE__, _m, _l, _b);              \
 } while (0)
 #else
-#define MSG_DUMP(_m, _l)
+#define MSG_DUMP(_m, _l, _b)
 #endif
 
-#define MSG_DUMP_ALL(_m, _l) do {                       \
-    _msg_dump(__FILE__, __LINE__, _m, _l);              \
+#define MSG_DUMP_ALL(_m, _l, _b) do {                       \
+    _msg_dump(__FILE__, __LINE__, _m, _l, _b);              \
 } while (0)
 
 #endif

@@ -29,8 +29,6 @@ static int all_rdb_parse_finished(rmtContext *ctx)
     for (i = 0; i < array_n(wdatas); i++) {
         wdata = array_get(wdatas, i);
         if (wdata->stat_rdb_parsed_count < wdata->nodes_count) {
-            log_debug(LOG_DEBUG, "@@write thread(%d) stat_rdb_parsed_count: %d , nodes_count: %d", 
-                wdata->id, wdata->stat_rdb_parsed_count, wdata->nodes_count);
             finished = 0;
             break;
         }

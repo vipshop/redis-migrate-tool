@@ -8,6 +8,16 @@
 #define REDIS_ZSET      3
 #define REDIS_HASH      4
 
+#define REDIS_REPLY_STATUS_OK     "+OK\r\n"
+#define REDIS_REPLY_STATUS_PONG   "+PONG\r\n"
+#define REDIS_REPLY_STATUS_NONE   "+none\r\n"
+#define REDIS_REPLY_STATUS_STRING "+string\r\n"
+#define REDIS_REPLY_STATUS_LIST   "+list\r\n"
+#define REDIS_REPLY_STATUS_SET    "+set\r\n"
+#define REDIS_REPLY_STATUS_ZSET   "+zset\r\n"
+#define REDIS_REPLY_STATUS_HASH   "+hash\r\n"
+
+
 #define REDIS_RDB_MBUF_BASE_SIZE        4096
 #define REDIS_CMD_MBUF_BASE_SIZE        512
 #define REDIS_RESPONSE_MBUF_BASE_SIZE   128
@@ -60,8 +70,6 @@ typedef struct redis_node*(*backend_node_t)(struct redis_group*, uint8_t *, uint
 typedef uint32_t (*hash_t)(const char *, size_t);
 
 struct rmtContext;
-struct read_thread_data;
-struct write_thread_data;
 struct mbuf_base;
 
 typedef struct redis_rdb{
@@ -156,9 +164,10 @@ typedef struct redis_node{
     list *send_data;        	/* used to cache the msg that will be sent. type: msg */
     list *sent_data;        	/* used to cache the msg that have be sent. type: msg */
     struct msg *msg_rcv;    	/* used to recieve response msg from the target redis. */
-    
-    int notice_pipe[2];     	/* used to notice the write thread  for source redis. */
-    int notice_read_pipe[2];	/* used to notice the read thread  for source redis. */
+
+    int sockpairfds[2];         /* sorcketpair used to notice between read and write thread. 
+                                                         *  sockpairfds[0]: read thread,  sockpairfds[1]: write thread
+                                                         */
 
     long long timestamp;
 
@@ -193,7 +202,7 @@ int redis_reply(struct msg *r);
 int redis_fragment(struct redis_group *rgroup, 
     struct msg *r, uint32_t ncontinuum, list *frag_msgl);
 
-int redis_response_check(struct msg *r);
+int redis_response_check(redis_node *rnode, struct msg *r);
 
 void redis_rdb_update_checksum(redis_rdb *rdb, const void *buf, size_t len);
 
@@ -220,8 +229,11 @@ redis_node *redis_cluster_backend_node(redis_group *rgroup, uint8_t *key, uint32
 redis_node *redis_twem_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen);
 redis_node *redis_single_backend_node(redis_group *rgroup, uint8_t *key, uint32_t keylen);
 
+sds redis_msg_response_get_bulk_string(struct msg *msg);
 int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len);
+int redis_msg_append_multi_bulk_len_full(struct msg *msg, uint32_t integer);
 int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len);
+int redis_msg_append_command_full(struct msg * msg, ...);
 
 #endif
 

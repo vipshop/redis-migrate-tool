@@ -72,6 +72,8 @@ _msg_get(void)
     msg->rnarg = 0;
     msg->rlen = 0;
     msg->integer = 0;
+    msg->bulk_len = 0;
+    msg->bulk_start = NULL;
 
     msg->err = 0;
     msg->error = 0;
@@ -248,7 +250,7 @@ msg_ensure_mbuf(struct msg *msg, size_t len)
 int msg_append_full(struct msg *msg, const uint8_t *pos, uint32_t n)
 {
     struct mbuf *mbuf;
-    uint32_t mbuf_s, left, len;
+    uint32_t left, len;
     mbuf_base *mb = msg->mb;
     const uint8_t *start;
 
@@ -477,7 +479,9 @@ int _msg_check(const char *file, int line, rmtContext *ctx, struct msg *msg, int
     }
 
     if (msg->request == 1) {
-        if (msg->noreply != ctx->noreply) {
+        if (memcmp(ctx->cmd, RMT_CMD_REDIS_MIGRATE, 
+            MIN(sdslen(ctx->cmd),strlen(RMT_CMD_REDIS_MIGRATE))) == 0 && 
+            msg->noreply != ctx->noreply) {
             _log(file, line, 0, "MSG CHECK Error: msg->noreply(%u) != ctx->noreply(%d)", 
                 msg->noreply, ctx->noreply);
             err = 1;
@@ -489,7 +493,7 @@ int _msg_check(const char *file, int line, rmtContext *ctx, struct msg *msg, int
     return RMT_OK;
     
 error:
-    MSG_DUMP(msg, LOG_ERR);
+    MSG_DUMP(msg, LOG_ERR, 0);
     if (panic) {
         rmt_stacktrace(1);
         abort();
@@ -497,7 +501,7 @@ error:
     return RMT_ERROR;
 }
 
-void _msg_dump(const char *file, int line, struct msg *msg, int level)
+void _msg_dump(const char *file, int line, struct msg *msg, int level, int begin)
 {
     struct mbuf *mbuf;
     listIter *iter;
@@ -520,14 +524,59 @@ void _msg_dump(const char *file, int line, struct msg *msg, int level)
     iter = listGetIterator(msg->data, AL_START_HEAD);
     while((node = listNext(iter)) != NULL) {
         mbuf = listNodeValue(node);
-        
-        p = mbuf->pos;
+
+        if (begin) {
+            p = mbuf->start;
+        } else {
+            p = mbuf->pos;
+        }
         q = mbuf->last;
         len = q - p;
         _log(file, line, 0, "mbuf [%p] with %ld bytes of data", p, len);
         _log_hexdump(file, line, p, len, NULL);
     }
     listReleaseIterator(iter);
+}
+
+int msg_data_compare(struct msg *msg1, struct msg *msg2)
+{
+    int ret;
+    listNode *lnode1, *lnode2;
+    struct mbuf *mbuf1, *mbuf2;
+    uint32_t len;
+    
+    if (msg1 == NULL && msg2 == NULL) {
+        return 0;
+    } else if (msg1 == NULL && msg2 != NULL) {
+        return -1;
+    } else if (msg1 != NULL && msg2 == NULL) {
+        return 1;
+    }
+
+    lnode1 = listFirst(msg1->data);
+    lnode2 = listFirst(msg2->data);
+    
+    while (lnode1 && lnode2) {
+        mbuf1 = listNodeValue(lnode1);
+        mbuf2 = listNodeValue(lnode2);
+        len = MIN(mbuf_length(mbuf1),mbuf_length(mbuf2));
+        ret = memcmp(mbuf1->pos, mbuf2->pos, len);
+        if (ret != 0) {
+            return ret;
+        }
+        
+        mbuf1->pos += len;
+        mbuf2->pos += len;
+        if (mbuf_length(mbuf1) == 0) {
+            lnode1 = lnode1->next;
+        }
+
+        if (mbuf_length(mbuf2) == 0) {
+            lnode2 = lnode2->next;
+        }
+    }
+
+    return 0;
 }
 
 #ifdef RMT_MEMORY_TEST

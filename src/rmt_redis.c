@@ -136,9 +136,6 @@ struct node_twem{
 #define REDIS_COMMAND_CLUSTER_NODES "CLUSTER NODES\r\n"
 #define REDIS_COMMAND_CLUSTER_SLOTS "*1\r\n$13\r\nCLUSTER SLOTS\r\n"
 
-#define REDIS_REPLY_OK     "+OK\r\n"
-#define REDIS_REPLY_PONG   "+PONG\r\n"
-
 #define REDIS_MAX_ELEMS_PER_COMMAND 1024*1024
 
 #define DEFINE_ACTION(_hash, _name) hash_##_name,
@@ -255,12 +252,9 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
     rnode->send_data = NULL;
     rnode->sent_data = NULL;
     rnode->msg_rcv = NULL;
-    
-    rnode->notice_pipe[0] = -1;
-    rnode->notice_pipe[1] = -1;
 
-    rnode->notice_read_pipe[0] = -1;
-    rnode->notice_read_pipe[1] = -1;
+    rnode->sockpairfds[0] = -1;
+    rnode->sockpairfds[1] = -1;
 
     rnode->timestamp = 0;
 
@@ -282,9 +276,9 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
         goto error;
     }
 
-    if (rgroup->source) {
-        rnode->ctx = ctx;
+    rnode->ctx = ctx;
 
+    if (rgroup->source) {
         rnode->rdb = rmt_alloc(sizeof(*rnode->rdb));
         if (rnode->rdb == NULL) {
             log_error("ERROR: Create rdb failed: out of memory");
@@ -336,43 +330,23 @@ int redis_node_init(redis_node *rnode, const char *addr, redis_group *rgroup)
             goto error;
         }
 
-        ret = pipe(rnode->notice_pipe);
+        ret = socketpair(AF_LOCAL, SOCK_STREAM, 0, rnode->sockpairfds);
         if (ret < 0) {
-            log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
+            log_error("ERROR: sockpairfds init failed: %s", strerror(errno));
             goto error;
         }
 
-        ret = rmt_set_nonblocking(rnode->notice_pipe[0]);
+        ret = rmt_set_nonblocking(rnode->sockpairfds[0]);
         if (ret < 0) {
-            log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
-                rnode->notice_pipe[0], strerror(errno));
+            log_error("ERROR: Set sockpairfds[0] %d nonblock failed: %s", 
+                rnode->sockpairfds[0], strerror(errno));
             goto error;
         }
 
-        ret = rmt_set_nonblocking(rnode->notice_pipe[1]);
+        ret = rmt_set_nonblocking(rnode->sockpairfds[1]);
         if (ret < 0) {
-            log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
-                rnode->notice_pipe[1], strerror(errno));
-            goto error;
-        }
-
-        ret = pipe(rnode->notice_read_pipe);
-        if (ret < 0) {
-            log_error("ERROR: Notice_read_pipe init failed: %s", strerror(errno));
-            goto error;
-        }
-
-        ret = rmt_set_nonblocking(rnode->notice_read_pipe[0]);
-        if (ret < 0) {
-            log_error("ERROR: Set notice_read_pipe[0] %d nonblock failed: %s", 
-                rnode->notice_read_pipe[0], strerror(errno));
-            goto error;
-        }
-
-        ret = rmt_set_nonblocking(rnode->notice_read_pipe[1]);
-        if (ret < 0) {
-            log_error("ERROR: Set notice_read_pipe[1] %d nonblock failed: %s", 
-                rnode->notice_read_pipe[1], strerror(errno));
+            log_error("ERROR: Set sockpairfds[1] %d nonblock failed: %s", 
+                rnode->sockpairfds[1], strerror(errno));
             goto error;
         }
     }else { 
@@ -443,24 +417,14 @@ void redis_node_deinit(redis_node *rnode)
         rnode->cmd_data = NULL;
     }
 
-    if (rnode->notice_pipe[0] > 0) {
-        close(rnode->notice_pipe[0]);
-        rnode->notice_pipe[0] = -1;
+    if (rnode->sockpairfds[0] > 0) {
+        close(rnode->sockpairfds[0]);
+        rnode->sockpairfds[0] = -1;
     }
 
-    if (rnode->notice_pipe[1] > 0) {
-        close(rnode->notice_pipe[1]);
-        rnode->notice_pipe[1] = -1;
-    }
-
-    if (rnode->notice_read_pipe[0] > 0) {
-        close(rnode->notice_read_pipe[0]);
-        rnode->notice_read_pipe[0] = -1;
-    }
-
-    if (rnode->notice_read_pipe[1] > 0) {
-        close(rnode->notice_read_pipe[1]);
-        rnode->notice_read_pipe[1] = -1;
+    if (rnode->sockpairfds[1] > 0) {
+        close(rnode->sockpairfds[1]);
+        rnode->sockpairfds[1] = -1;
     }
 
     if (rnode->mbuf_in != NULL) {
@@ -476,7 +440,8 @@ void redis_node_deinit(redis_node *rnode)
 
     if (rnode->send_data != NULL) {
         while ((msg = listPop(rnode->send_data)) != NULL) {
-            ASSERT(msg->request && !msg->sent);
+            ASSERT(msg->request);
+            ASSERT(msg->sent == 0);
             msg_put(msg);
             msg_free(msg);
         }
@@ -487,7 +452,8 @@ void redis_node_deinit(redis_node *rnode)
 
     if (rnode->sent_data != NULL) {
         while ((msg = listPop(rnode->sent_data)) != NULL) {
-            ASSERT(msg->request && msg->sent);
+            ASSERT(msg->request);
+            ASSERT(msg->sent == 1);
             msg_put(msg);
             msg_free(msg);
         }
@@ -3929,6 +3895,7 @@ redis_parse_rsp(struct msg *r)
                 if ((p - r->token) <= 1) {
                     goto error;
                 }
+                r->bulk_len = r->rlen;
                 r->token = NULL;
                 state = SW_BULK_LF;
             } else {
@@ -3950,6 +3917,10 @@ redis_parse_rsp(struct msg *r)
             break;
 
         case SW_BULK_ARG:
+            if (r->bulk_start == NULL) {
+                r->bulk_start = p;
+            }
+            
             m = p + r->rlen;
             if (m >= b->last) {
                 r->rlen -= (uint32_t)(b->last - p);
@@ -4180,14 +4151,13 @@ error:
                 r->state);
 }
 
-int redis_response_check(struct msg *r)
+int redis_response_check(redis_node *rnode, struct msg *r)
 {
     struct msg *resp;
     uint32_t key_num;
     struct keypos *kp;
 
-    if(r == NULL)
-    {
+    if (r == NULL) {
         return RMT_ERROR;
     }
 
@@ -4196,31 +4166,28 @@ int redis_response_check(struct msg *r)
     ASSERT(r->request && r->sent);
     ASSERT(resp != NULL && resp->request == 0);
 
-    if(resp->type == MSG_RSP_REDIS_ERROR){
-        log_warn("Response for %s is error: ",
-            msg_type_string(r->type));
-        MSG_DUMP_ALL(resp, LOG_WARN);
+    if (resp->type == MSG_RSP_REDIS_ERROR) {
+        log_warn("Response from node[%s] for %s is error.",
+            rnode->addr, msg_type_string(r->type));
+        MSG_DUMP_ALL(resp, LOG_WARN, 0);
         goto error;
     }
 
     switch(r->type){
     case MSG_REQ_REDIS_SET:
-        if(resp->type != MSG_RSP_REDIS_STATUS)
-        {
+        if (resp->type != MSG_RSP_REDIS_STATUS) {
             goto error;
         }
 
-        if(msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_OK, 
-            rmt_strlen(REDIS_REPLY_OK)) != 0)
-        {
+        if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_STATUS_OK, 
+            rmt_strlen(REDIS_REPLY_STATUS_OK)) != 0) {
             goto error;
         }
         
         break;
     case MSG_REQ_REDIS_APPEND:
     case MSG_REQ_REDIS_DEL:
-        if(resp->type != MSG_RSP_REDIS_INTEGER)
-        {
+        if (resp->type != MSG_RSP_REDIS_INTEGER) {
             goto error;
         }
         
@@ -4230,7 +4197,7 @@ int redis_response_check(struct msg *r)
         break;
     }
     
-    MSG_DUMP(resp, LOG_VVERB);
+    MSG_DUMP(resp, LOG_VVERB, 0);
     
     msg_put(r);
     msg_free(r);
@@ -4242,17 +4209,14 @@ int redis_response_check(struct msg *r)
 error:
 
     key_num = array_n(r->keys);
-    if(key_num == 0)
-    {
+    if (key_num == 0) {
         kp = NULL;
-    }
-    else
-    {
+    } else {
         kp = array_get(r->keys, 0);
     }
     
-    log_warn("response %s for request %s is error", 
-        msg_type_string(resp->type), msg_type_string(r->type));
+    log_warn("response %s from node[%s] for request %s is error", 
+        msg_type_string(resp->type), rnode->addr, msg_type_string(r->type));
 
     msg_put(r);
     msg_free(r);
@@ -4748,8 +4712,8 @@ int redis_reply(struct msg *r)
 
     switch (r->type) {
     case MSG_REQ_REDIS_PING:
-        return msg_append(response, (uint8_t *)REDIS_REPLY_PONG, 
-            rmt_strlen(REDIS_REPLY_PONG));
+        return msg_append(response, (uint8_t *)REDIS_REPLY_STATUS_PONG, 
+            rmt_strlen(REDIS_REPLY_STATUS_PONG));
 
     default:
         NOT_REACHED();
@@ -4762,8 +4726,8 @@ static void redis_post_coalesce_mset(struct msg *request)
     int ret;
     struct msg *response = request->peer;
 
-    ret = msg_append(response, (uint8_t *)REDIS_REPLY_OK, 
-        rmt_strlen(REDIS_REPLY_OK));
+    ret = msg_append(response, (uint8_t *)REDIS_REPLY_STATUS_OK, 
+        rmt_strlen(REDIS_REPLY_STATUS_OK));
     if (ret != RMT_OK) {
         response->err = errno;
     }
@@ -4908,39 +4872,87 @@ redis_parse_req_rdb(struct msg *r)
     return;
 }
 
-static int redis_msg_append_multi_bulk_len_full(struct msg *msg, uint32_t integer)
+sds redis_msg_response_get_bulk_string(struct msg *msg)
+{
+    sds str;
+    listNode *lnode;
+    struct mbuf *mbuf;
+    uint32_t len, len_left;
+    uint8_t *pos;
+    int find = 0;
+
+    if (msg == NULL || listLength(msg->data) == 0) {
+        return NULL;
+    }
+
+    pos = msg->bulk_start;
+    if (pos == NULL) {
+        log_error("ERROR: bulk start in msg is NULL.");
+        return NULL;
+    }
+    len_left = msg->bulk_len;
+    lnode = listFirst(msg->data);
+    while (lnode) {
+        mbuf = listNodeValue(lnode);
+        if (pos >= mbuf->pos && pos < mbuf->last) {
+            find = 1;
+            break;
+        }
+
+        lnode = lnode->next;
+    }
+
+    if (find == 0) {
+        log_error("ERROR: can't find the correct position[%p] in msg.", pos);
+        return NULL;
+    }
+
+    str = sdsempty();
+
+    len = MIN(len_left, mbuf->last - pos);
+    str = sdscatlen(str, pos, len);
+    len_left -= len;
+    lnode = lnode->next;
+    
+    while (lnode && len_left > 0) {
+        mbuf = listNodeValue(lnode);
+        len = MIN(len_left, mbuf_length(mbuf));
+        str = sdscatlen(str, mbuf->pos, len);
+        len_left -= len;
+        lnode = lnode->next;
+    }
+
+    return str;
+}
+
+int redis_msg_append_multi_bulk_len_full(struct msg *msg, uint32_t integer)
 {
     int ret;
     sds str;
     
-    if(msg == NULL)
-    {
+    if (msg == NULL) {
         return RMT_ERROR;
     }
 
     str = sdsfromlonglong((long long)integer);
-    if(str == NULL)
-    {
+    if (str == NULL) {
         return RMT_ENOMEM;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)"*", 1);
-    if(ret != RMT_OK)
-    {
+    if (ret != RMT_OK) {
         sdsfree(str);
         return RMT_ENOMEM;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)str, sdslen(str));
-    if(ret != RMT_OK)
-    {
+    if (ret != RMT_OK) {
         sdsfree(str);
         return RMT_ENOMEM;
     }
 
     ret = msg_append_full(msg, (const uint8_t*)CRLF, CRLF_LEN);
-    if(ret != RMT_OK)
-    {
+    if (ret != RMT_OK) {
         sdsfree(str);
         return RMT_ENOMEM;
     }
@@ -4969,8 +4981,6 @@ int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len)
         return RMT_ENOMEM;
     }
 
-    //log_debug(LOG_DEBUG, "len: %u, len_str : %s", len, len_str);
-
     ret = msg_append_full(msg, (const uint8_t*)len_str, sdslen(len_str));
     if (ret != RMT_OK) {
         sdsfree(len_str);
@@ -4993,6 +5003,44 @@ int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len)
     if (ret != RMT_OK) {
        return RMT_ENOMEM;
     }
+
+    return RMT_OK;
+}
+
+int redis_msg_append_command_full(struct msg * msg, ...)
+{
+    int ret;
+    char *arg;
+    va_list ap;
+    uint32_t count;
+
+    count = 0;
+    va_start(ap,msg);
+    while(1) {
+        arg = va_arg(ap, char*);
+        if (arg == NULL) break;
+        count ++;
+    }
+    va_end(ap);
+
+    ret = redis_msg_append_multi_bulk_len_full(msg, count);
+    if (ret != RMT_OK) {
+        log_error("ERROR: msg append multi bulk len failed.");
+        return RMT_ERROR;
+    }
+    
+    va_start(ap,msg);
+    while(1) {
+        arg = va_arg(ap, char*);
+        if (arg == NULL) break;
+        ret = redis_msg_append_bulk_full(msg, arg, (uint32_t)strlen(arg));
+        if (ret != RMT_OK) {
+            log_error("ERROR: msg append multi bulk failed.");
+            va_end(ap);
+            return RMT_ERROR;
+        }
+    }
+    va_end(ap);
 
     return RMT_OK;
 }
@@ -6061,7 +6109,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     //notice the read thread to begin replication for the next redis_node
     if (srnode->next != NULL) {
-        rmt_write(srnode->next->notice_read_pipe[1], " ", 1);
+        rmt_write(srnode->next->sockpairfds[1], " ", 1);
     } else {
         log_notice("All nodes' rdb file parsed finished for this write thread(%d).",
             wdata->id);
@@ -6109,7 +6157,7 @@ int redis_parse_rdb_time(aeEventLoop *el, long long id, void *privdata)
     if(ret == RMT_AGAIN){
         return 1;
     }else if(ret == RMT_OK){
-        ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
+        ret = aeCreateFileEvent(wdata->loop, srnode->sockpairfds[1], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
             log_error("ERROR: Create ae read event for node %s parse_request failed", 
@@ -6154,7 +6202,7 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
             return;
         }
 
-        ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
+        ret = aeCreateFileEvent(wdata->loop, srnode->sockpairfds[1], 
             AE_READABLE, parse_request, srnode);
         if(ret != AE_OK){
             log_error("ERROR: Create ae read event for node %s parse_request failed", 

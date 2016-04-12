@@ -26,10 +26,9 @@ int thread_data_init(thread_data *tdata)
 
     tdata->nodes = NULL;
     tdata->nodes_count = 0;
-    tdata->notice_pipe[0] = -1;
-    tdata->notice_pipe[1] = -1;
 
     tdata->keys_count = 0;
+    tdata->sent_keys_count = 0;
     tdata->checked_keys_count = 0;
 
     tdata->data = NULL;
@@ -74,14 +73,6 @@ void thread_data_deinit(thread_data *tdata)
 		tdata->nodes = NULL;
 	}
     tdata->nodes_count = 0;
-    if (tdata->notice_pipe[0] > 0) {
-        close(tdata->notice_pipe[0]);
-        tdata->notice_pipe[0] = -1;
-    }
-    if (tdata->notice_pipe[1] > 0) {
-        close(tdata->notice_pipe[1]);
-        tdata->notice_pipe[1] = -1;
-    }
 
     tdata->keys_count = 0;
     tdata->checked_keys_count = 0;
@@ -176,26 +167,6 @@ static int write_thread_data_init(rmtContext *ctx, thread_data *wdata)
         trnode->write_data = wdata;
     }
     dictReleaseIterator(di);
-
-    ret = pipe(wdata->notice_pipe);
-    if (ret < 0) {
-        log_error("ERROR: Notice_pipe init failed: %s", strerror(errno));
-        goto error;
-    }
-
-    ret = rmt_set_nonblocking(wdata->notice_pipe[0]);
-    if (ret < 0) {
-        log_error("ERROR: Set notice_pipe[0] %d nonblock failed: %s", 
-            wdata->notice_pipe[0], strerror(errno));
-        goto error;
-    }
-
-    ret = rmt_set_nonblocking(wdata->notice_pipe[1]);
-    if (ret < 0){
-        log_error("ERROR: Set notice_pipe[1] %d nonblock failed: %s", 
-            wdata->notice_pipe[1], strerror(errno));
-        goto error;
-    }
 
     if (aeCreateTimeEvent(wdata->loop, 1, writeThreadCron, wdata, NULL) == AE_ERR) {
         log_error("ERROR: can't create the writeThreadCron time event.");
@@ -525,13 +496,13 @@ static int read_write_threads_create(rmtContext *ctx,
 
                 pre_node = rnode;
 
-                ret = aeCreateFileEvent(wdata->loop, rnode->notice_pipe[0], 
+                ret = aeCreateFileEvent(wdata->loop, rnode->sockpairfds[1], 
                     AE_READABLE, parse_prepare, rnode);
                 if(ret != AE_OK)
                 {
                     log_error("ERROR: Create readable notice event for node[%s] fd %d "
                         "on the write thread %ld failed: %s",
-                        rnode->addr, rnode->notice_pipe[0],
+                        rnode->addr, rnode->sockpairfds[1],
                         wdata->thread_id, strerror(errno));        
                     goto error;
                 }
@@ -622,12 +593,12 @@ static int read_write_threads_create(rmtContext *ctx,
                     }
 
                     pre_node = rnode;
-                    ret = aeCreateFileEvent(wdata->loop, rnode->notice_pipe[0], 
+                    ret = aeCreateFileEvent(wdata->loop, rnode->sockpairfds[1], 
                         AE_READABLE, parse_prepare, rnode);
                     if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
-                            rnode->addr, rnode->notice_pipe[0],
+                            rnode->addr, rnode->sockpairfds[1],
                             wdata->thread_id, strerror(errno));        
                         goto error;
                     }
@@ -663,12 +634,12 @@ static int read_write_threads_create(rmtContext *ctx,
 
                     pre_node = rnode;
                     ret = aeCreateFileEvent(wdata_min_rnodes->loop, 
-                        rnode->notice_pipe[0], 
+                        rnode->sockpairfds[1], 
                         AE_READABLE, parse_prepare, rnode);
                     if (ret != AE_OK) {
                         log_error("ERROR: Create readable notice event for node[%s] fd %d "
                             "on the write thread %ld failed: %s",
-                            rnode->addr, rnode->notice_pipe[0],
+                            rnode->addr, rnode->sockpairfds[1],
                             wdata_min_rnodes->thread_id, 
                             strerror(errno));        
                         goto error;
@@ -898,13 +869,13 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
 
             pre_node = srnode;
 
-            ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
+            ret = aeCreateFileEvent(wdata->loop, srnode->sockpairfds[1], 
                 AE_READABLE, parse_prepare, srnode);
             if(ret != AE_OK)
             {
                 log_error("ERROR: create readable notice event for node[%s] fd %d "
                     "on the write thread %ld failed: %s",
-                    srnode->addr, srnode->notice_pipe[0],
+                    srnode->addr, srnode->sockpairfds[1],
                     wdata->thread_id, strerror(errno));        
                 goto error;
             }
@@ -988,17 +959,12 @@ static void begin_replication(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(mask);
 
     ASSERT(rdata->loop == el);
-    ASSERT(srnode->notice_read_pipe[0] == fd);
+    ASSERT(srnode->sockpairfds[0] == fd);
 
-    rmt_read(srnode->notice_read_pipe[0], c , 1);
+    rmt_read(srnode->sockpairfds[0], c , 1);
     ASSERT(c[0] == ' ');
 
     aeDeleteFileEvent(el, fd, mask);
-
-    close(srnode->notice_read_pipe[0]);
-    srnode->notice_read_pipe[0] = -1;
-    close(srnode->notice_read_pipe[1]);
-    srnode->notice_read_pipe[1] = -1;
     
     rmtConnectRedisMaster(srnode);
 }
@@ -1015,13 +981,13 @@ static void *read_thread_run(void *args)
     it = listGetIterator(nodes, AL_START_HEAD);
     while((lnode = listNext(it)) != NULL){
     	srnode = listNodeValue(lnode);
-        ret = aeCreateFileEvent(rdata->loop, srnode->notice_read_pipe[0], 
+        ret = aeCreateFileEvent(rdata->loop, srnode->sockpairfds[0], 
                 AE_READABLE, begin_replication, srnode);
         if(ret != AE_OK)
         {
             log_error("ERROR: Create readable notice event for node[%s] fd %d "
                 "to begin replication on the read thread %ld failed: %s",
-                srnode->addr, srnode->notice_read_pipe[0],
+                srnode->addr, srnode->sockpairfds[0],
                 rdata->thread_id, strerror(errno));
             listReleaseIterator(it);
             exit(0);
@@ -1086,7 +1052,7 @@ static void *write_thread_run(void *args)
         return 0;
     }
 
-    rmt_write(srnode->notice_read_pipe[1], " ", 1);
+    rmt_write(srnode->sockpairfds[1], " ", 1);
 
     aeMain(wdata->loop);
 
@@ -1228,7 +1194,7 @@ again:
             if (msg->mlen == 0) {
                 //msg send done?
                 log_debug(LOG_NOTICE, "");
-                MSG_DUMP(msg,LOG_NOTICE);
+                MSG_DUMP(msg,LOG_NOTICE, 0);
                 NOT_REACHED();
             }
             
@@ -1405,8 +1371,8 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
             ret = aeCreateFileEvent(wdata->loop, tc->sd, 
                 AE_READABLE, recv_data_from_target, trnode);
             if(ret != AE_OK){
-                log_error("ERROR: send_data event create %ld failed: %s",
-                    wdata->thread_id, strerror(errno));
+                log_error("ERROR: create read event for node[%s] failed: %s",
+                    trnode->addr, strerror(errno));
                 return RMT_ERROR;
             }
 
@@ -1532,7 +1498,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
         return RMT_ERROR;
     }
 
-    MSG_DUMP(resp, LOG_DEBUG);
+    MSG_DUMP(resp, LOG_DEBUG, 0);
 
     ASSERT(trnode->msg_rcv == resp);
     
@@ -1548,7 +1514,7 @@ static int response_done(redis_node *trnode, struct msg *resp)
     
     trnode->msg_rcv = NULL;
 
-    ret = req->resp_check(req);
+    ret = req->resp_check(trnode, req);
     if(ret != RMT_OK){
         log_error("ERROR: Response check is error");
         return RMT_ERROR;
@@ -1570,10 +1536,10 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(mask);
 
     ASSERT(wdata->loop == el);
-    ASSERT(srnode->notice_pipe[0] == fd);
+    ASSERT(srnode->sockpairfds[1] == fd);
 
     if (rdb->type == REDIS_RDB_TYPE_FILE) {
-        aeDeleteFileEvent(wdata->loop, srnode->notice_pipe[0], AE_READABLE);
+        aeDeleteFileEvent(wdata->loop, srnode->sockpairfds[1], AE_READABLE);
         
         if (srnode->sk_event < 0) {
             srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);
@@ -1596,9 +1562,9 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
         return;     
     }
 
-    aeDeleteFileEvent(wdata->loop, srnode->notice_pipe[0], AE_READABLE);
+    aeDeleteFileEvent(wdata->loop, srnode->sockpairfds[1], AE_READABLE);
     
-    ret = aeCreateFileEvent(wdata->loop, srnode->notice_pipe[0], 
+    ret = aeCreateFileEvent(wdata->loop, srnode->sockpairfds[1], 
         AE_READABLE, parse_request, srnode);
     if (ret != AE_OK) {
         log_error("ERROR: Create ae read event for node %s parse_request failed", 
@@ -1633,7 +1599,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
     RMT_NOTUSED(mask);
 
     ASSERT(el == wdata->loop);
-    ASSERT(fd == srnode->notice_pipe[0]);
+    ASSERT(fd == srnode->sockpairfds[1]);
 
     log_debug(LOG_DEBUG, "parse_job %s", srnode->addr);
 
@@ -1741,7 +1707,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
             msg->mlen += mbuf_length(mbuf_f);
         }
 
-        MSG_DUMP(msg, LOG_VVERB);
+        MSG_DUMP(msg, LOG_VVERB, 0);
         msg->parser(msg);
 
         if(msg->result == MSG_PARSE_OK){
@@ -1782,7 +1748,7 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 msg_type_string(msg->type));
             continue;
         }else{
-            MSG_DUMP_ALL(msg, LOG_NOTICE);
+            MSG_DUMP_ALL(msg, LOG_NOTICE, 0);
             mbuf_list_dump_all(srnode->piece_data, LOG_NOTICE);
             msg_put(srnode->msg);
             msg_free(srnode->msg);
@@ -1895,7 +1861,7 @@ int notice_write_thread(redis_node *srnode)
         return RMT_ERROR;
     }
 
-    rmt_write(srnode->notice_pipe[1]," ",1);
+    rmt_write(srnode->sockpairfds[0]," ",1);
 
     return RMT_OK;
 }

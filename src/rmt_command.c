@@ -9,7 +9,7 @@ struct RMTCommand rmtCommandTable[] = {
     {RMT_CMD_KEYS_NUM, "Show the group keys number.", 
         group_state, REDIS_KEY_NUM, 1, 1, 0},
     {RMT_CMD_REDIS_COMPARE, "Compare data between source redis group to target redis group.", 
-        redis_compare, -1, 0, 0, 0}
+        redis_compare, -1, 0, 1, 0}
 };
 
 void

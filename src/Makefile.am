@@ -49,7 +49,7 @@ redis_migrate_tool_SOURCES =			\
 	rmt_message.c rmt_message.h	\
 	rmt_list.c rmt_list.h	\
 	rmt_hash.c rmt_hash.h	\
-	rmt_unlocklist.c rmt_unlocklist.h	\
+	rmt_unlocklist.c rmt_unlocklist.h \
 	rmt_connect.c rmt_connect.h	\
 	rmt.c 
 	
