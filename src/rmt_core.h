@@ -226,6 +226,9 @@ typedef struct thread_data{
     long long keys_count;   /* keys count to check for this thread */
     long long sent_keys_count;
     long long checked_keys_count;
+    long long err_check_keys_count;
+    long long err_inconsistent_value_keys_count;
+    long long err_inconsistent_expire_keys_count;
     
     list *data;             /* data list */
 
@@ -265,8 +268,7 @@ redis_group *target_group_create(rmtContext *ctx);
 void target_group_destroy(redis_group *trgroup);
 
 void redis_migrate(rmtContext *ctx, int type);
-void redis_compare(rmtContext *ctx, int type);
-void group_state(rmtContext *ctx, int type);
+void redis_check_data(rmtContext *ctx, int type);
 
 #endif
 

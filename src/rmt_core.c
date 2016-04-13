@@ -30,6 +30,9 @@ int thread_data_init(thread_data *tdata)
     tdata->keys_count = 0;
     tdata->sent_keys_count = 0;
     tdata->checked_keys_count = 0;
+    tdata->err_inconsistent_value_keys_count = 0;
+    tdata->err_inconsistent_expire_keys_count = 0;
+    tdata->err_check_keys_count = 0;
 
     tdata->data = NULL;
     
@@ -2302,39 +2305,6 @@ static int do_command_in_group(redis_group *rgroup, int type)
     RMT_NOTUSED(type);
     
     return RMT_OK;
-}
-
-void group_state(rmtContext *ctx, int type)
-{
-    redis_group *rgroup;
-
-    if(array_n(&ctx->args) != 1){
-        log_error("ERROR: Command %s must have one argument" 
-            " that is 'source' or 'target'.",
-            ctx->cmd);
-        return;
-    }
-
-    if(strcmp(array_get(&ctx->args, 0), "source") == 0){
-        rgroup = source_group_create(ctx);
-    }else if(strcmp(array_get(&ctx->args, 0), "target") == 0){
-        rgroup = target_group_create(ctx);
-    }else{
-        log_error("ERROR: Command %s must have one argument" 
-            " that is 'source' or 'target'.",
-            ctx->cmd);
-        return;
-    }
-
-    if(rgroup == NULL){
-        log_error("ERROR: Group create failed");
-        return;
-    }
-
-    do_command_in_group(rgroup, type);
-
-    redis_group_deinit(rgroup);
-    rmt_free(rgroup);
 }
 
 unsigned int dictSdsHash(const void *key) {

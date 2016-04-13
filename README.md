@@ -225,8 +225,41 @@ For example, you try the **info** command:
 + **total_mbufs_inqueue**: Cached commands data(not include rdb data) by mbufs input from source group.
 + **total_msgs_outqueue**: Msgs will be sent to target group and msgs had been sent to target but waiting for the response.
 
+## CHECK THE DATA
+
+After migrate the data, you can use **redis_check** command to check data in the source group and target group.
+
+Try the **redis_check** command:
+
+	$src/redis-migrate-tool -c rmt.conf -o log -C redis_check
+	Check job is running...
+
+	Checked keys: 1000
+	Inconsistent value keys: 0
+	Inconsistent expire keys : 0
+	Other check error keys: 0
+	Checked OK keys: 1000
+
+	All keys checked OK!
+	Check job finished, used 1.041s
+	
+If you want check more keys, try the follow:
+
+	$src/redis-migrate-tool -c rmt.conf -o log -C "redis_check 200000"
+	Check job is running...
+
+	Checked keys: 200000
+	Inconsistent value keys: 0
+	Inconsistent expire keys : 0
+	Other check error keys: 0
+	Checked OK keys: 200000
+
+	All keys checked OK!
+	Check job finished, used 11.962s
+
+	
 ## License
 
-Copyright 2012 Deep, Inc.
+Copyright 2016 Deep, Inc.
 
 Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0

@@ -1,15 +1,13 @@
 
 #include <rmt_core.h>
 
-#define COMMAND_NAME_MAX_LENGTH 30
+#define COMMAND_NAME_MAX_LENGTH 21
 
 struct RMTCommand rmtCommandTable[] = {
-    {RMT_CMD_REDIS_MIGRATE, "Migrate data from source redis group to target redis group.", 
+    {RMT_CMD_REDIS_MIGRATE, "Migrate data from source group to target group.", 
         redis_migrate, -1, 0, 0, 0},
-    {RMT_CMD_KEYS_NUM, "Show the group keys number.", 
-        group_state, REDIS_KEY_NUM, 1, 1, 0},
-    {RMT_CMD_REDIS_COMPARE, "Compare data between source redis group to target redis group.", 
-        redis_compare, -1, 0, 1, 0}
+    {RMT_CMD_REDIS_CHECK, "Compare data between source group and target group. Default compare 1000 keys. You can set a key count behind.", 
+        redis_check_data, -1, 0, 1, 0}
 };
 
 void
@@ -37,7 +35,7 @@ rmt_show_command_usage(void)
         memset(command_name_with_space, ' ', COMMAND_NAME_MAX_LENGTH);
         command_name_with_space[COMMAND_NAME_MAX_LENGTH] = '\0';
         memcpy(command_name_with_space, c->name, (size_t)command_name_len);
-        log_stdout("    %s:%s", command_name_with_space, c->description);       
+        log_stdout("    %s: %s", command_name_with_space, c->description);       
     }
 }
 
