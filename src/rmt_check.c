@@ -791,7 +791,7 @@ void redis_check_data(rmtContext *ctx, int type)
     }
 
     ctx->thread_count = threads_count;
-    threads = rmt_alloc(threads_count * sizeof(*threads));
+    threads = rmt_zalloc(threads_count * sizeof(*threads));
     if (threads == NULL) {
         log_error("Error: out of memory.");
         goto error;
