@@ -51,7 +51,7 @@ redis_migrate_tool_SOURCES =			\
 	rmt_hash.c rmt_hash.h	\
 	rmt_unlocklist.c rmt_unlocklist.h \
 	rmt_connect.c rmt_connect.h	\
-	rmt_check.c	\
+	rmt_check.c	rmt_testinsert.c \
 	rmt.c 
 	
 redis_migrate_tool_LDADD = $(top_builddir)/src/ae/libae.a

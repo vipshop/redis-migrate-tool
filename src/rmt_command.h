@@ -4,6 +4,7 @@
 #define RMT_CMD_REDIS_MIGRATE           "redis_migrate"
 #define RMT_CMD_KEYS_NUM		        "keys_num"
 #define RMT_CMD_REDIS_CHECK             "redis_check"
+#define RMT_CMD_REDIS_TESTINSERT        "redis_testinsert"
 
 #define CMD_FLAG_NEED_CONFIRM 			(1<<0)
 

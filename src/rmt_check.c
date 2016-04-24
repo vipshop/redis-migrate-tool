@@ -7,7 +7,13 @@
 #define CHECK_UNIT_STATE_GET_VALUE      3
 #define CHECK_UNIT_STATE_GET_EXPIRE     4
 
-typedef struct check_unit{
+typedef struct check_data {
+    long long err_check_keys_count;
+    long long err_inconsistent_value_keys_count;
+    long long err_inconsistent_expire_keys_count;
+}check_data;
+
+typedef struct check_unit {
     redis_node *srnode;
     thread_data *cdata;
     
@@ -16,7 +22,7 @@ typedef struct check_unit{
     int state;
     struct msg *result1;
     struct msg *result2;
-}check_unit;
+} check_unit;
 
 static check_unit *check_unit_create(void)
 {
@@ -43,8 +49,8 @@ static check_unit *check_unit_create(void)
 static void check_unit_destroy(check_unit *cunit)
 {
     if (cunit->cdata != NULL) {
-        cunit->cdata->checked_keys_count ++;
-        if (cunit->cdata->checked_keys_count >= 
+        cunit->cdata->finished_keys_count ++;
+        if (cunit->cdata->finished_keys_count >= 
             cunit->cdata->keys_count) {
             aeStop(cunit->cdata->loop);
         }
@@ -99,6 +105,17 @@ static thread_data *check_thread_data_create(rmtContext *ctx)
         goto error;
     }
 
+    /* use the ctx->mbuf_size */
+    if (cdata->trgroup->mb != NULL) {
+        mbuf_base_destroy(cdata->trgroup->mb);
+        cdata->trgroup->mb = mbuf_base_create(
+            ctx->mbuf_size, NULL);
+        if (cdata->trgroup->mb == NULL) {
+            log_error("ERROR: Create mbuf_base failed");
+            goto error;
+        }
+    }
+
     setsize += ((int)dictSize(cdata->srgroup->nodes)*(1 + 1) + 
         (int)dictSize(cdata->trgroup->nodes)*1)*ctx->thread_count;
     cdata->loop = aeCreateEventLoop(setsize);
@@ -107,7 +124,7 @@ static thread_data *check_thread_data_create(rmtContext *ctx)
         goto error;
     }
 
-    cdata->data = listCreate();
+    cdata->data = rmt_zalloc(sizeof(check_data));
     if (cdata->data == NULL) {
         log_error("Error: out of memory.");
         goto error;
@@ -133,10 +150,7 @@ static void check_thread_data_destroy(thread_data *cdata)
     thread_data_deinit(cdata);
 
     if (cdata->data != NULL) {
-        while ((cunit = listPop(cdata->data)) != NULL) {
-            check_unit_destroy(cunit);
-        }
-        listRelease(cdata->data);
+        rmt_free(cdata->data);
         cdata->data = NULL;
     }
 
@@ -242,6 +256,7 @@ static int check_response(redis_node *rnode, struct msg *r)
 {
     int ret;
     struct msg *resp, *msg = NULL;
+    check_data *chdata;
     check_unit *cunit;
     char extra_err[50];
 
@@ -258,6 +273,7 @@ static int check_response(redis_node *rnode, struct msg *r)
     ASSERT(resp != NULL && resp->request == 0);
 
     cunit = (check_unit *)r->ptr;
+    chdata = cunit->cdata->data;
 
     if(resp->type == MSG_RSP_REDIS_ERROR){
         log_warn("Response from node[%s] for %s is error",
@@ -358,7 +374,8 @@ static int check_response(redis_node *rnode, struct msg *r)
             rmt_strlen(REDIS_REPLY_STATUS_SET)) == 0) {
             cunit->key_type = REDIS_SET;
 
-            ret = redis_msg_append_command_full(msg, "smembers", cunit->key, NULL);
+            //ret = redis_msg_append_command_full(msg, "smembers", cunit->key, NULL);
+            ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
@@ -435,7 +452,7 @@ static int check_response(redis_node *rnode, struct msg *r)
     
         if (cunit->result1 != NULL && cunit->result2 != NULL) {
             if (msg_data_compare(cunit->result1, cunit->result2) != 0) {
-                cunit->cdata->err_inconsistent_value_keys_count ++;
+                chdata->err_inconsistent_value_keys_count ++;
                 rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
                 goto error;
             }
@@ -500,7 +517,7 @@ static int check_response(redis_node *rnode, struct msg *r)
                 ASSERT(mistake != 0);
 
                 if (abs(mistake) > TTL_MISTAKE_CAN_BE_ACCEPT) {
-                    cunit->cdata->err_inconsistent_expire_keys_count ++;
+                    chdata->err_inconsistent_expire_keys_count ++;
                     rmt_safe_snprintf(extra_err, 50, 
                         ", remaining time are %"PRIu32" and %"PRIu32"\0", 
                         cunit->result1->integer, cunit->result2->integer);
@@ -532,7 +549,7 @@ next_step:
 
 error:
 
-    cunit->cdata->err_check_keys_count ++;
+    chdata->err_check_keys_count ++;
 
     if (cunit->key != NULL) {        
         log_error("ERROR: key checked failed: %s%s. key(len:%zu): %.*s",  
@@ -582,7 +599,7 @@ static void check_begin(aeEventLoop *el, int fd, void *privdata, int mask)
     ASSERT(fd == srnode->sk_event);
 
     if (cdata->sent_keys_count - 
-        cdata->checked_keys_count > 
+        cdata->finished_keys_count > 
         MAX_UNITS_HOLD_PER_THREAD) {
         return;
     }
@@ -591,8 +608,6 @@ static void check_begin(aeEventLoop *el, int fd, void *privdata, int mask)
          aeDeleteFileEvent(cdata->loop,srnode->sk_event,AE_WRITABLE);
          return;
     }
-
-    log_debug(LOG_DEBUG, "@@check_begin node[%s]", srnode->addr);
     
     cunit = check_unit_create();
     if (cunit == NULL) {
@@ -846,13 +861,15 @@ void redis_check_data(rmtContext *ctx, int type)
 
     for(i = 0; i < threads_count; i ++){
         checked_keys_count += 
-            threads[i]->checked_keys_count;
+            threads[i]->finished_keys_count;
+
+        check_data *chdata = threads[i]->data;
 		err_check_keys_count += 
-            threads[i]->err_check_keys_count;
+            chdata->err_check_keys_count;
         err_inconsistent_value_keys_count += 
-            threads[i]->err_inconsistent_value_keys_count;
+            chdata->err_inconsistent_value_keys_count;
         err_inconsistent_expire_keys_count += 
-            threads[i]->err_inconsistent_expire_keys_count;
+            chdata->err_inconsistent_expire_keys_count;
 	}
 
     err_others_keys_count = err_check_keys_count - 

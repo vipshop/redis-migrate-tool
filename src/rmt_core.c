@@ -29,10 +29,8 @@ int thread_data_init(thread_data *tdata)
 
     tdata->keys_count = 0;
     tdata->sent_keys_count = 0;
-    tdata->checked_keys_count = 0;
-    tdata->err_inconsistent_value_keys_count = 0;
-    tdata->err_inconsistent_expire_keys_count = 0;
-    tdata->err_check_keys_count = 0;
+    tdata->finished_keys_count = 0;
+    tdata->correct_keys_count = 0;
 
     tdata->data = NULL;
     
@@ -78,7 +76,7 @@ void thread_data_deinit(thread_data *tdata)
     tdata->nodes_count = 0;
 
     tdata->keys_count = 0;
-    tdata->checked_keys_count = 0;
+    tdata->finished_keys_count = 0;
     
     tdata->stat_total_msgs_recv = 0;
     tdata->stat_total_msgs_sent = 0;
@@ -1353,7 +1351,6 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     int ret;
     rmtContext *ctx = srnode->ctx;
     thread_data *wdata = srnode->write_data;
-    redis_group *trgroup = wdata->trgroup;
     tcp_context *tc = trnode->tc;
 
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
@@ -1393,11 +1390,8 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     }
 
     listAddNodeTail(trnode->send_data, msg);
-    trgroup->msg_send_num ++;
     wdata->stat_total_msgs_recv ++;
     wdata->stat_msgs_outqueue ++;
-    log_debug(LOG_DEBUG, "sended msgs: %lld", 
-        trgroup->msg_send_num);
     
     return RMT_OK;
 }

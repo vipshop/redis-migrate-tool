@@ -161,11 +161,6 @@ static dictType groupNodesDictType = {
 
 static int rmtRedisSlaveAgainOnline(redis_node *srnode);
 static void rmtRedisSlaveOffline(redis_node *srnode);
-static int redis_key_value_send(redis_node *srnode, sds key, 
-    int data_type, struct array *value, 
-    int expiretime_type, long long expiretime, 
-    void *data);
-
 
 int redis_replication_init(redis_repl *rr)
 {
@@ -517,7 +512,6 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
     rgroup->timeout = 0;
     
     rgroup->mb = NULL;
-    rgroup->msg_send_num = 0;
 
     rgroup->route = NULL;
     rgroup->get_backend_idx = NULL;
@@ -658,7 +652,6 @@ void redis_group_deinit(redis_group *rgroup)
         rgroup->password = NULL;
     }
 
-    rgroup->msg_send_num = 0;
     rgroup->ncontinuum = 0;
     rgroup->ctx = NULL;
 }
@@ -4156,6 +4149,7 @@ int redis_response_check(redis_node *rnode, struct msg *r)
     struct msg *resp;
     uint32_t key_num;
     struct keypos *kp;
+    thread_data *tdata = rnode->write_data;
 
     if (r == NULL) {
         return RMT_ERROR;
@@ -4203,6 +4197,14 @@ int redis_response_check(redis_node *rnode, struct msg *r)
     msg_free(r);
     msg_put(resp);
     msg_free(resp);
+
+    if (tdata->keys_count > 0) {
+        tdata->correct_keys_count ++;
+        tdata->finished_keys_count ++;
+        if (tdata->finished_keys_count >= tdata->keys_count) {
+            aeStop(tdata->loop);
+        }
+    }
     
     return RMT_OK;
 
@@ -4222,6 +4224,14 @@ error:
     msg_free(r);
     msg_put(resp);
     msg_free(resp);
+
+    
+    if (tdata->keys_count > 0) {
+        tdata->finished_keys_count ++;
+        if (tdata->finished_keys_count >= tdata->keys_count) {
+            aeStop(tdata->loop);
+        }
+    }
 
     return RMT_ERROR;
 }
@@ -5045,7 +5055,7 @@ int redis_msg_append_command_full(struct msg * msg, ...)
     return RMT_OK;
 }
 
-static struct msg *redis_generate_msg_with_key_value(rmtContext *ctx, mbuf_base *mb, 
+struct msg *redis_generate_msg_with_key_value(rmtContext *ctx, mbuf_base *mb, 
     int data_type, sds key, struct array *value, int expiretime_type, sds expiretime)
 {
     int ret;
@@ -5230,7 +5240,7 @@ error:
     return NULL;
 }
 
-static struct msg *redis_generate_msg_with_key_expire(rmtContext *ctx, mbuf_base *mb, 
+struct msg *redis_generate_msg_with_key_expire(rmtContext *ctx, mbuf_base *mb, 
     sds key, int expiretime_type, sds expiretime)
 {
     int ret;
@@ -5303,7 +5313,7 @@ error:
 
 }
 
-static struct array *redis_value_create(uint32_t nelem)
+struct array *redis_value_create(uint32_t nelem)
 {
     struct array *value;
 
@@ -5316,7 +5326,7 @@ static struct array *redis_value_create(uint32_t nelem)
     return value;
 }
 
-static void redis_value_destroy(struct array *value)
+void redis_value_destroy(struct array *value)
 {
     sds *str;
     
@@ -5795,7 +5805,7 @@ del:
   * 0 no msg sent
   * >0 mbuf count sent 
   */
-static int redis_key_value_send(redis_node *srnode, sds key, 
+int redis_key_value_send(redis_node *srnode, sds key, 
     int data_type, struct array *value, 
     int expiretime_type, long long expiretime, 
     void *data)

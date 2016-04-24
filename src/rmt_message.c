@@ -522,6 +522,7 @@ void _msg_dump(const char *file, int line, struct msg *msg, int level, int begin
 
 
     iter = listGetIterator(msg->data, AL_START_HEAD);
+    ASSERT(iter != NULL);
     while((node = listNext(iter)) != NULL) {
         mbuf = listNodeValue(node);
 
@@ -567,6 +568,8 @@ int msg_data_compare(struct msg *msg1, struct msg *msg2)
         
         mbuf1->pos += len;
         mbuf2->pos += len;
+        msg1->mlen -= len;
+        msg2->mlen -= len;
         if (mbuf_length(mbuf1) == 0) {
             lnode1 = lnode1->next;
         }
@@ -574,6 +577,12 @@ int msg_data_compare(struct msg *msg1, struct msg *msg2)
         if (mbuf_length(mbuf2) == 0) {
             lnode2 = lnode2->next;
         }
+    }
+
+    if (msg1->mlen > 0) {
+        return 1;
+    } else if (msg2->mlen > 0) {
+        return -1;
     }
 
     return 0;

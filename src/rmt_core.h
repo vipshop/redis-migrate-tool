@@ -225,12 +225,10 @@ typedef struct thread_data{
     /* The fllow region used for command 'redis_check' */
     long long keys_count;   /* keys count to check for this thread */
     long long sent_keys_count;
-    long long checked_keys_count;
-    long long err_check_keys_count;
-    long long err_inconsistent_value_keys_count;
-    long long err_inconsistent_expire_keys_count;
+    long long finished_keys_count;
+    long long correct_keys_count;
     
-    list *data;             /* data list */
+    void *data;             /* data for this thread */
 
     volatile uint64_t stat_total_msgs_recv;         /* total msg received for this thread */
     volatile uint64_t stat_total_msgs_sent;         /* total msg received for this thread */
@@ -269,6 +267,7 @@ void target_group_destroy(redis_group *trgroup);
 
 void redis_migrate(rmtContext *ctx, int type);
 void redis_check_data(rmtContext *ctx, int type);
+void redis_testinsert_data(rmtContext *ctx, int type);
 
 #endif
 
