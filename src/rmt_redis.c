@@ -4219,6 +4219,7 @@ error:
     
     log_warn("response %s from node[%s] for request %s is error", 
         msg_type_string(resp->type), rnode->addr, msg_type_string(r->type));
+    MSG_DUMP(r, LOG_WARN, 1);
 
     msg_put(r);
     msg_free(r);
@@ -5563,22 +5564,21 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         if ((len = redis_rdb_file_load_len(rdb,NULL)) == REDIS_RDB_LENERR) goto error;
 
         value = redis_value_create((uint32_t)(2*len));
-        if(value == NULL)
-        {
+        if (value == NULL) {
             log_error("ERROR: Out of memory");
             goto error;
         }
         
         while(len--) {
             if ((elem1 = redis_rdb_file_load_str(rdb)) == NULL) goto error;
-            if ((elem2 = redis_rdb_file_load_double_str(rdb)) == NULL) 
-            {
+            if ((elem2 = redis_rdb_file_load_double_str(rdb)) == NULL) {
                 sdsfree(elem1);
                 goto error;
             }
 
             str = array_push(value);
             *str = elem2;
+            ASSERT(sdsIsNum(*str) == 1);
             str = array_push(value);
             *str = elem1;
         }
@@ -5632,7 +5632,6 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             break;
         }
         case REDIS_RDB_TYPE_LIST_ZIPLIST:
-        case REDIS_RDB_TYPE_ZSET_ZIPLIST:
         case REDIS_RDB_TYPE_HASH_ZIPLIST:
         {
             unsigned char *zl = (unsigned char *)elems;
@@ -5642,6 +5641,10 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             long long vlong;
             
             len = ziplistLen(zl);
+            if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST && len%2 != 0) {
+                log_error("ERROR: hash value length from rdb must be an even number");
+                goto error;
+            }
 
             value = redis_value_create((uint32_t)len);
             if (value == NULL) {
@@ -5650,7 +5653,6 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             }
 
             eptr = ziplistIndex(zl,0);
-            //sptr = ziplistNext(zl,eptr);
             
             while (eptr != NULL) {
                 ziplistGet(eptr,&vstr,&vlen,&vlong);
@@ -5668,6 +5670,54 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             
             break;
         }
+        case REDIS_RDB_TYPE_ZSET_ZIPLIST:
+        {
+            unsigned char *zl = (unsigned char *)elems;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
+            uint32_t k = 0;
+            sds *score, *data;
+            sds field;
+            
+            len = ziplistLen(zl);
+            if (len%2 != 0) {
+                log_error("ERROR: zset value length from rdb must be an even number");
+                goto error;
+            }
+
+            value = redis_value_create((uint32_t)len);
+            if (value == NULL) {
+                log_error("ERROR: Out of memory");
+                goto error;
+            }
+
+            eptr = ziplistIndex(zl,0);
+            
+            while (eptr != NULL) {
+                ziplistGet(eptr,&vstr,&vlen,&vlong);
+
+                if (vstr == NULL) {
+                    field = sdsfromlonglong(vlong);
+                } else {
+                    field = sdsnewlen(vstr, vlen);
+                }
+
+                if (k%2 == 0) {
+                    score = array_push(value);
+                    data = array_push(value);
+
+                    *data = field;
+                } else {
+                    *score = field;
+                }
+                
+                eptr = ziplistNext(zl,eptr);
+                k ++;
+            }
+            break;
+        }
         case REDIS_RDB_TYPE_SET_INTSET:
         {
             intset *is = (intset *)elems;
@@ -5676,16 +5726,13 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             len = intsetLen(is);
 
             value = redis_value_create((uint32_t)len);
-            if(value == NULL)
-            {
+            if (value == NULL) {
                 log_error("ERROR: Out of memory");
                 goto error;
             }
 
-            for(i = 0; i < len; i ++)
-            {
-                if(intsetGet(is, i, &integer) == 0)
-                {
+            for (i = 0; i < len; i ++) {
+                if (intsetGet(is, i, &integer) == 0) {
                     log_error("ERROR: intset get failed");
                     goto error;
                 }

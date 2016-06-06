@@ -293,6 +293,13 @@ static int check_response(redis_node *rnode, struct msg *r)
             goto error;
         }
 
+        if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_BULK_NULL, 
+            rmt_strlen(REDIS_REPLY_BULK_NULL)) == 0) {
+            /* source group may have no keys, stop it */
+            cunit->cdata->keys_count --;
+            goto done;
+        }
+
         cunit->key = redis_msg_response_get_bulk_string(resp);
         if (cunit->key == NULL) {
             log_error("ERROR: get bulk string from response of node[%s] failed, "
@@ -365,7 +372,8 @@ static int check_response(redis_node *rnode, struct msg *r)
             rmt_strlen(REDIS_REPLY_STATUS_LIST)) == 0) {
             cunit->key_type = REDIS_LIST;
 
-            ret = redis_msg_append_command_full(msg, "lrange", cunit->key, "0", "-1", NULL);
+            //ret = redis_msg_append_command_full(msg, "lrange", cunit->key, "0", "-1", NULL);
+            ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
@@ -759,7 +767,7 @@ void redis_check_data(rmtContext *ctx, int type)
 {
     int i;
     int threads_count;
-    long long keys_count, keys_count_per_thread;
+    long long keys_count = 0, keys_count_per_thread;
     long long keys_count_left, keys_count_threads_hold;
     thread_data **threads = NULL;
     long long starttime, endtime;
@@ -777,10 +785,13 @@ void redis_check_data(rmtContext *ctx, int type)
 
     signal(SIGPIPE, SIG_IGN);
 
-    keys_count = 1000;
     if (array_n(&ctx->args) == 1) {
         sds *str = array_get(&ctx->args, 0);
         keys_count = rmt_atoll(*str,sdslen(*str));
+    }
+
+    if (keys_count <= 0) {
+        keys_count = 1000;
     }
     
     keys_count_threads_hold = 0;

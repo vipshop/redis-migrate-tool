@@ -258,6 +258,68 @@ If you want check more keys, try the follow:
 	Check job finished, used 11.962s
 
 	
+## INSERT SOME KEYS JUST FOR **TEST**
+
+Try the **redis_testinsert** command:
+
+    $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert"
+    Test insert job is running...
+
+    Insert string keys: 256
+    Insert list keys  : 248
+    Insert set keys   : 248
+    Insert zset keys  : 248
+    Insert hash keys  : 0
+    Insert total keys : 1000
+
+    Correct inserted keys: 1000
+    Test insert job finished, used 0.525s
+    
+If you want insert more keys, try the follow:
+
+    $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert 30000"
+    Test insert job is running...
+
+    Insert string keys: 7504
+    Insert list keys  : 7504
+    Insert set keys   : 7496
+    Insert zset keys  : 7496
+    Insert hash keys  : 0
+    Insert total keys : 30000
+
+    Correct inserted keys: 30000
+    Test insert job finished, used 15.486s
+    
+If you want insert only string type keys, try the follow:
+
+    $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert string"
+    Test insert job is running...
+
+    Insert string keys: 1000
+    Insert list keys  : 0
+    Insert set keys   : 0
+    Insert zset keys  : 0
+    Insert hash keys  : 0
+    Insert total keys : 1000
+
+    Correct inserted keys: 1000
+    Test insert job finished, used 0.024s
+    
+If you want insert some special type keys, try the follow:
+
+    $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert string|set|list 10000"
+    Test insert job is running...
+
+    Insert string keys: 3336
+    Insert list keys  : 3336
+    Insert set keys   : 3328
+    Insert zset keys  : 0
+    Insert hash keys  : 0
+    Insert total keys : 10000
+
+    Correct inserted keys: 10000
+    Test insert job finished, used 5.539s
+    
 ## License
 
 Copyright 2016 Deep, Inc.

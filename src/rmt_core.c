@@ -2234,6 +2234,11 @@ void redis_migrate(rmtContext *ctx, int type)
     ctx->rdatas = read_datas;
     ctx->wdatas = write_datas;
 
+    ret = proxy_begin(ctx);
+    if (ret != RMT_OK) {
+        goto done;
+    }
+
     //Run the read job
     for(i = 0; i < read_threads_count; i ++){
     	rdata = array_get(read_datas, (uint32_t)i);
@@ -2248,11 +2253,6 @@ void redis_migrate(rmtContext *ctx, int type)
 
         pthread_create(&wdata->thread_id, 
             NULL, write_thread_run, wdata);
-    }
-
-    ret = proxy_begin(ctx);
-    if (ret != RMT_OK) {
-        goto done;
     }
 
     log_notice("migrate job is running...");

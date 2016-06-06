@@ -1,6 +1,10 @@
 #include <rmt_core.h>
 #include <signal.h>
 
+#define TEST_MAX_KEY_LEN    64
+#define TEST_MAX_STRING_LEN 128
+#define TEST_MAX_FIELD_LEN  128
+
 /* Object types */
 #define TEST_TYPE_REDIS_STRING    (1<<0)
 #define TEST_TYPE_REDIS_LIST      (1<<1)
@@ -41,7 +45,26 @@ static uint32_t get_random_num(void)
 
 static uint8_t get_random_char(void)
 {
-    return (uint8_t)rand()%255 + 1;
+    return (uint8_t)rand()%92 + 32;
+}
+
+static sds get_random_key(int data_type)
+{
+    uint32_t i, len;
+    sds str = sdsempty();
+    
+    len = (uint32_t)get_random_num()%TEST_MAX_KEY_LEN;
+    if (len == 0) len ++;
+    str = sdsMakeRoomFor(str,(size_t)len);
+    sdsIncrLen(str, (int)len);
+
+    /* Make sure different value type has different key */
+    str[0] = (char)data_type;
+    for (i = 1; i < len; i ++) {
+        str[i] = (char)get_random_char();
+    }
+
+    return str;
 }
 
 static sds get_random_string(void)
@@ -49,7 +72,7 @@ static sds get_random_string(void)
     uint32_t i, len;
     sds str = sdsempty();
     
-    len = (uint32_t)get_random_char();
+    len = (uint32_t)get_random_num()%TEST_MAX_STRING_LEN;
     str = sdsMakeRoomFor(str,(size_t)len);
     sdsIncrLen(str, (int)len);
 
@@ -127,14 +150,14 @@ done:
 
     tidata->counter ++;
     
-    dunit->key = get_random_string();
+    dunit->key = get_random_key(dunit->data_type);
 
     if (dunit->data_type == REDIS_STRING) {
         value_counter = 1;
     } else if(dunit->data_type == REDIS_LIST) {
-        value_counter = (uint32_t)get_random_char();
+        value_counter = (uint32_t)get_random_num()%TEST_MAX_FIELD_LEN + 1;
     } else {
-        value_counter = (uint32_t)get_random_char();
+        value_counter = (uint32_t)get_random_num()%TEST_MAX_FIELD_LEN + 1;
         if (value_counter%2 != 0) {
             value_counter ++;
         }
@@ -236,10 +259,8 @@ static void testinsert_thread_data_destroy(thread_data *cdata)
 #define MAX_KEYS_HOLD_PER_THREAD   1000
 static void testinsert_begin(aeEventLoop *el, int fd, void *privdata, int mask)
 {
-    int ret;
     redis_node *srnode = privdata;
     thread_data *cdata = srnode->write_data;
-    mbuf_base *mb = cdata->srgroup->mb;
     data_unit *dunit;
 
     RMT_NOTUSED(el);
@@ -391,6 +412,7 @@ void redis_testinsert_data(rmtContext *ctx, int type)
     long long starttime, endtime;
     sds *key_types_str = NULL;
     int key_types_str_count = 0;
+    sds *str = NULL;
 
     RMT_NOTUSED(type);
 
@@ -400,44 +422,89 @@ void redis_testinsert_data(rmtContext *ctx, int type)
 
     signal(SIGPIPE, SIG_IGN);
 
-    /* Init the key type */
-    if (array_n(&ctx->args) >= 1) {
-        sds *str = array_get(&ctx->args, 0);
-        key_types_str = sdssplitlen(*str,sdslen(*str),"|",1,&key_types_str_count);
-        if (key_types_str == NULL || key_types_str_count < 1) {
-            log_error("ERROR: key type error");
-            goto error;
-        }
+    /* Init the key count */
+    keys_count = 1000;
 
-        for (i = 0; i < key_types_str_count; i ++) {
-            if (!strcasecmp(key_types_str[i], "string")) {
-                data_types |= TEST_TYPE_REDIS_STRING;
-            } else if (!strcasecmp(key_types_str[i], "list")) {
-                data_types |= TEST_TYPE_REDIS_LIST;
-            } else if (!strcasecmp(key_types_str[i], "set")) {
-                data_types |= TEST_TYPE_REDIS_SET;
-            } else if (!strcasecmp(key_types_str[i], "zset")) {
-                data_types |= TEST_TYPE_REDIS_ZSET;
-            } else if (!strcasecmp(key_types_str[i], "hash")) {
-                data_types |= TEST_TYPE_REDIS_HASH;
-            } else if (!strcasecmp(key_types_str[i], "all")) {
-                data_types |= TEST_TYPE_REDIS_STRING;
-                data_types |= TEST_TYPE_REDIS_LIST;
-                data_types |= TEST_TYPE_REDIS_SET;
-                data_types |= TEST_TYPE_REDIS_ZSET;
-                data_types |= TEST_TYPE_REDIS_HASH;
-            }
-        }
-
-        sdsfreesplitres(key_types_str, key_types_str_count);
-    } else {
+    if (array_n(&ctx->args) == 0) {
+        keys_count = 1000;
+        
         data_types |= TEST_TYPE_REDIS_STRING;
         data_types |= TEST_TYPE_REDIS_LIST;
         data_types |= TEST_TYPE_REDIS_SET;
         data_types |= TEST_TYPE_REDIS_ZSET;
-        data_types |= TEST_TYPE_REDIS_HASH;
+        /* redis_check command sometimes does not work for*/
+        /* hash type, so we don't insert hash by default. */
+        //data_types |= TEST_TYPE_REDIS_HASH;
+
+        goto parse_done;
+    } else if (array_n(&ctx->args) == 1) {
+        str = array_get(&ctx->args, 0);
+        if (sdsIsNum(*str)) {
+            keys_count = rmt_atoll(*str,sdslen(*str));
+
+            data_types |= TEST_TYPE_REDIS_STRING;
+            data_types |= TEST_TYPE_REDIS_LIST;
+            data_types |= TEST_TYPE_REDIS_SET;
+            data_types |= TEST_TYPE_REDIS_ZSET;
+            /* redis_check command sometimes does not work for*/
+            /* hash type, so we don't insert hash by default. */
+            //data_types |= TEST_TYPE_REDIS_HASH;
+
+            goto parse_done;
+        } else {
+            keys_count = 1000;
+        }
+    } else if (array_n(&ctx->args) == 2) {
+        str = array_get(&ctx->args, 0);
+        if (sdsIsNum(*str)) {
+            keys_count = rmt_atoll(*str,sdslen(*str));
+            str = array_get(&ctx->args, 1);
+        } else {
+            str = array_get(&ctx->args, 1);
+            if (!sdsIsNum(*str)) {
+                log_error("ERROR: arguments must have a number for key count");
+                goto error;
+            }
+            keys_count = rmt_atoll(*str,sdslen(*str));
+            str = array_get(&ctx->args, 0);
+        }
     }
 
+    /* Init the key type */
+    ASSERT(str != NULL);
+        
+    key_types_str = sdssplitlen(*str,sdslen(*str),"|",1,&key_types_str_count);
+    if (key_types_str == NULL || key_types_str_count < 1) {
+        log_error("ERROR: key type error");
+        goto error;
+    }
+
+    for (i = 0; i < key_types_str_count; i ++) {
+        if (!strcasecmp(key_types_str[i], "string")) {
+            data_types |= TEST_TYPE_REDIS_STRING;
+        } else if (!strcasecmp(key_types_str[i], "list")) {
+            data_types |= TEST_TYPE_REDIS_LIST;
+        } else if (!strcasecmp(key_types_str[i], "set")) {
+            data_types |= TEST_TYPE_REDIS_SET;
+        } else if (!strcasecmp(key_types_str[i], "zset")) {
+            data_types |= TEST_TYPE_REDIS_ZSET;
+        } else if (!strcasecmp(key_types_str[i], "hash")) {
+            data_types |= TEST_TYPE_REDIS_HASH;
+        } else if (!strcasecmp(key_types_str[i], "all")) {
+            data_types |= TEST_TYPE_REDIS_STRING;
+            data_types |= TEST_TYPE_REDIS_LIST;
+            data_types |= TEST_TYPE_REDIS_SET;
+            data_types |= TEST_TYPE_REDIS_ZSET;
+            data_types |= TEST_TYPE_REDIS_HASH;
+        } else {
+            log_error("ERROR: value type is error");
+            goto error;
+        }
+    }
+
+    sdsfreesplitres(key_types_str, key_types_str_count);
+
+parse_done:
     if (data_types&TEST_TYPE_REDIS_STRING) {
         data_type_string_mark = data_types_count;
         data_types_count ++;
@@ -457,13 +524,6 @@ void redis_testinsert_data(rmtContext *ctx, int type)
     if (data_types&TEST_TYPE_REDIS_HASH) {
         data_type_hash_mark = data_types_count;
         data_types_count ++;
-    }
-
-    /* Init the key count */
-    keys_count = 1000;
-    if (array_n(&ctx->args) == 2) {
-        sds *str = array_get(&ctx->args, 1);
-        keys_count = rmt_atoll(*str,sdslen(*str));
     }
     
     keys_count_threads_hold = 0;

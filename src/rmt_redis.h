@@ -17,6 +17,7 @@
 #define REDIS_REPLY_STATUS_ZSET   "+zset\r\n"
 #define REDIS_REPLY_STATUS_HASH   "+hash\r\n"
 
+#define REDIS_REPLY_BULK_NULL     "$-1\r\n"
 
 #define REDIS_RDB_MBUF_BASE_SIZE        4096
 #define REDIS_CMD_MBUF_BASE_SIZE        512
