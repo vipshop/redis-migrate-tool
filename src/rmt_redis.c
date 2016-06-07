@@ -6217,17 +6217,6 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
     wdata->stat_rdb_parsed_count ++;
 
-    if (srnode->owner->kind != GROUP_TYPE_RDBFILE) {
-        //notice the read thread to begin replication for the next redis_node
-        if (srnode->next != NULL) {
-            rmt_write(srnode->next->sockpairfds[1], " ", 1);
-        } else {
-            log_notice("All nodes' rdb file parsed finished for this write thread(%d).",
-                wdata->id);
-            ASSERT(wdata->stat_rdb_parsed_count == wdata->nodes_count);
-        }
-    }
-
     return RMT_OK;
 
 again:
@@ -6323,6 +6312,15 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
         }
 
         notice_write_thread(srnode);
+
+        //notice the read thread to begin replication for the next redis_node
+        if (srnode->next != NULL) {
+            rmt_write(srnode->next->sockpairfds[1], " ", 1);
+        } else {
+            log_notice("All nodes' rdb file parsed finished for this write thread(%d).",
+                wdata->id);
+            ASSERT(wdata->stat_rdb_parsed_count == wdata->nodes_count);
+        }
     }else{
         aeDeleteFileEvent(wdata->loop, 
             srnode->sk_event, AE_WRITABLE);

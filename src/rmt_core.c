@@ -162,6 +162,11 @@ static int write_thread_data_init(rmtContext *ctx, thread_data *wdata)
         goto error;
     }
 
+    if (wdata->trgroup->kind == GROUP_TYPE_RDBFILE) {
+        log_error("ERROR: Target group type can't be rdb file now");
+        goto error;
+    }
+
     di = dictGetSafeIterator(wdata->trgroup->nodes);
     while ((de = dictNext(di)) != NULL) {
         trnode = dictGetVal(de);
