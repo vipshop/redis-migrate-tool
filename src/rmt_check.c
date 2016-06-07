@@ -255,6 +255,7 @@ static char *get_check_error(check_unit *cunit)
 static int check_response(redis_node *rnode, struct msg *r)
 {
     int ret;
+    rmtContext *ctx = rnode->ctx;
     struct msg *resp, *msg = NULL;
     check_data *chdata;
     check_unit *cunit;
@@ -309,6 +310,11 @@ static int check_response(redis_node *rnode, struct msg *r)
                 "bulk_len: %"PRIu32", bulk_start: %p", 
                 rnode->addr, resp->bulk_len, resp->bulk_start);
             goto error;
+        }
+
+        if (ctx->filter != NULL && !stringmatchlen(ctx->filter, sdslen(ctx->filter), 
+            cunit->key, sdslen(cunit->key), 0)) {
+            goto done;
         }
 
         ASSERT(sdslen(cunit->key) == resp->bulk_len);

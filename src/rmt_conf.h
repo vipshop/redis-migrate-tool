@@ -62,6 +62,7 @@ typedef struct rmt_conf {
     sds           dir;
 
     int           max_clients;
+    sds           filter;
 }rmt_conf;
 
 typedef struct conf_value{

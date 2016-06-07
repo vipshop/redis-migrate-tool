@@ -1430,6 +1430,13 @@ static int prepare_send_data(redis_node *srnode)
     //If this msg contain only one key, just send it.
     if (array_n(msg->keys) == 1) {
         kp = array_get(msg->keys, 0);
+        if (ctx->filter != NULL && !stringmatchlen(ctx->filter, sdslen(ctx->filter), 
+            kp->start, (int)(kp->end-kp->start), 0)) {
+            msg_put(msg);
+            msg_free(msg);
+            return RMT_OK;
+        }
+        
         trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
         if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
             goto error;
@@ -1443,12 +1450,13 @@ static int prepare_send_data(redis_node *srnode)
         goto error;
     }
 
+    if (ctx->filter == NULL) {
+        ASSERT(listLength(&frag_msgl) > 0);
+    }
+
     if (listLength(&frag_msgl) == 0) {
-        kp = array_get(msg->keys, 0);
-        trnode = trgroup->get_backend_node(trgroup, kp->start, (uint32_t)(kp->end-kp->start));
-        if(prepare_send_msg(srnode, msg, trnode) != RMT_OK){
-            goto error;
-        }
+        msg_put(msg);
+        msg_free(msg);
         return RMT_OK;
     }
 

@@ -111,6 +111,9 @@ static conf_option conf_common_options[] = {
     { (char*)"max_clients",
       conf_set_num,
       offsetof(rmt_conf, max_clients) },
+    { (char*)"filter",
+      conf_set_string,
+      offsetof(rmt_conf, filter) },
     { NULL, NULL, 0 }
 };
 
@@ -693,6 +696,8 @@ static int conf_init(rmt_conf *cf)
     cf->dir = CONF_UNSET_PTR;
 
     cf->max_clients = CONF_UNSET_NUM;
+
+    cf->filter = CONF_UNSET_PTR;
     
     return RMT_OK;
 }
@@ -788,6 +793,7 @@ conf_dump(rmt_conf *cf)
     log_debug(log_level, "  source_safe: %d", cf->source_safe);
     log_debug(log_level, "  dir: %s", cf->dir);
     log_debug(log_level, "  max_clients: %s", cf->max_clients);
+    log_debug(log_level, "  filter: %s", cf->filter);
     log_debug(log_level, "");
 
     source_pool = &cf->source_pool;

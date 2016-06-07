@@ -68,6 +68,8 @@ init_context(struct instance *rmti)
     listInit(&rmt_ctx->clients);
     rmt_ctx->mb = NULL;
 
+    rmt_ctx->filter = NULL;
+
     commands = dictCreate(&commandTableDictType,NULL);
     if(commands == NULL)
     {
@@ -186,6 +188,10 @@ init_context(struct instance *rmti)
 
     if (cf->max_clients != CONF_UNSET_NUM) {
         rmt_ctx->max_ncconn = (uint32_t)cf->max_clients;
+    }
+
+    if (cf->filter != CONF_UNSET_PTR) {
+        rmt_ctx->filter = sdsdup(cf->filter);
     }
 
     rmt_ctx->mb = mbuf_base_create(

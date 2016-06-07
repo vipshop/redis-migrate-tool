@@ -207,6 +207,8 @@ typedef struct rmtContext {
     uint32_t ncurr_cconn;
     list clients;
     mbuf_base *mb;
+
+    sds filter;
 }rmtContext;
 
 typedef struct thread_data{

@@ -4544,6 +4544,7 @@ static int redis_fragment_argx(redis_group *rgroup,
     struct msg *r, uint32_t ncontinuum, list *frag_msgl, uint32_t key_step)
 {
     int ret;
+    rmtContext *ctx = rgroup->ctx;
     listNode *lnode, *nlnode;
     struct mbuf *mbuf;
     struct msg **sub_msgs;
@@ -4614,6 +4615,28 @@ static int redis_fragment_argx(redis_group *rgroup,
     for (i = 0; i < array_n(r->keys); i++) {        /* for each key */
         struct msg *sub_msg;
         struct keypos *kpos = array_get(r->keys, i);
+
+        if (ctx->filter != NULL && !stringmatchlen(ctx->filter, sdslen(ctx->filter), 
+            kpos->start, (int)(kpos->end - kpos->start), 0)) {
+            if (key_step == 1) {                            /* mget,del */
+                /* do nothing */
+            } else {                                        /* mset */
+                ret = redis_copy_bulk(NULL, r);             /* eat key */
+                if (ret != RMT_OK) {
+                    rmt_free(sub_msgs);
+                    log_error("ERROR: Eat key for mset failed");
+                    return ret;
+                }
+
+                ret = redis_copy_bulk(NULL, r);
+                if (ret != RMT_OK) {
+                    rmt_free(sub_msgs);
+                    log_error("ERROR: Eat value for mset failed");
+                    return ret;
+                }
+            }
+            continue;
+        }
         
         uint32_t idx = rgroup->get_backend_idx(rgroup, kpos->start, (uint32_t)(kpos->end - kpos->start));
 
@@ -4638,7 +4661,7 @@ static int redis_fragment_argx(redis_group *rgroup,
         if (key_step == 1) {                            /* mget,del */
             continue;
         } else {                                        /* mset */
-            ret = redis_copy_bulk(NULL, r);          /* eat key */
+            ret = redis_copy_bulk(NULL, r);             /* eat key */
             if (ret != RMT_OK) {
                 rmt_free(sub_msgs);
                 log_error("ERROR: Eat key for mset failed");
@@ -4676,6 +4699,7 @@ static int redis_fragment_argx(redis_group *rgroup,
             ret = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmset\r\n",
                                         sub_msg->narg + 1);
         } else {
+            ret = RMT_ERROR;
             NOT_REACHED();
         }
         if (ret != RMT_OK) {
@@ -5998,6 +6022,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 {
     int ret;
     uint32_t i;
+    rmtContext *ctx = srnode->ctx;
     redis_rdb *rdb = srnode->rdb;
     thread_data *wdata = srnode->write_data;
     redis_group *trgroup = wdata->trgroup;
@@ -6142,7 +6167,8 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         log_debug(LOG_DEBUG, "key: %s, value array length: %u", 
             key, array_n(value));
 
-        if (rdb->handler != NULL) {
+        if (rdb->handler != NULL && (ctx->filter == NULL || 
+            stringmatchlen(ctx->filter, sdslen(ctx->filter), key, sdslen(key), 0))) {
             ret = rdb->handler(srnode, key, data_type, value, 
                 expiretime_type, expiretime, trgroup);
             if (ret < 0) {

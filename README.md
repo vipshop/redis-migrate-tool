@@ -68,6 +68,7 @@ Config file has three parts: source, target and common.
 + **noreply**: A boolean value that decide whether to check the target group replies. Defaults to false.
 + **source_safe**: A boolean value that protect the source group machines memory safe. If it is true, the tool can guarantee only one redis to generate rdb file at one time on the same machine for source group. In addition, 'source_safe: true' may use less threads then you set. Defaults to true.
 + **dir**: Work directory. Defaults to the current directory.
++ **filter**: Filter keys if they do not match the pattern. The pattern is Glob-style. Defaults is NULL.
 
 
 For example, the configuration file shown below is to migrate data from single to twemproxy.
