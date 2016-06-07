@@ -372,8 +372,8 @@ static int check_response(redis_node *rnode, struct msg *r)
             rmt_strlen(REDIS_REPLY_STATUS_LIST)) == 0) {
             cunit->key_type = REDIS_LIST;
 
-            //ret = redis_msg_append_command_full(msg, "lrange", cunit->key, "0", "-1", NULL);
-            ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
+            ret = redis_msg_append_command_full(msg, "lrange", cunit->key, "0", "-1", NULL);
+            //ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;

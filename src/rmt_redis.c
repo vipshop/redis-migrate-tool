@@ -115,7 +115,7 @@ struct node_twem{
 
 /* Insert command for every object */
 #define REDIS_INSERT_STRING    "set"
-#define REDIS_INSERT_LIST      "lpush"
+#define REDIS_INSERT_LIST      "rpush"
 #define REDIS_INSERT_SET       "sadd"
 #define REDIS_INSERT_ZSET      "zadd"
 #define REDIS_INSERT_HASH      "hmset"
