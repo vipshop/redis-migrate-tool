@@ -259,6 +259,8 @@ static int check_response(redis_node *rnode, struct msg *r)
     check_data *chdata;
     check_unit *cunit;
     char extra_err[50];
+    struct array args;
+    sds *arg;
 
     if (r == NULL) {
         return RMT_ERROR;
@@ -268,6 +270,7 @@ static int check_response(redis_node *rnode, struct msg *r)
 
     resp = r->peer;
     r->peer = NULL;
+    array_init(&args, 3, sizeof(sds));
 
     ASSERT(r->request && r->sent);
     ASSERT(resp != NULL && resp->request == 0);
@@ -315,11 +318,19 @@ static int check_response(redis_node *rnode, struct msg *r)
             log_error("ERROR: out of memory.");
             goto error;
         }
-        
-        ret = redis_msg_append_command_full(msg, "type", cunit->key, NULL);
+
+        arg = array_push(&args);
+        *arg = sdsnew("type");
+        arg = array_push(&args);
+        *arg = sdsdup(cunit->key);
+        ret = redis_msg_append_command_full_safe(msg, &args);
         if (ret != RMT_OK) {
             log_error("ERROR: msg append multi bulk len failed.");
             goto error;
+        }
+        while (array_n(&args) > 0) {
+            arg = array_pop(&args);
+            sdsfree(*arg);
         }
         
         msg->ptr = cunit;
@@ -363,48 +374,98 @@ static int check_response(redis_node *rnode, struct msg *r)
             rmt_strlen(REDIS_REPLY_STATUS_STRING)) == 0) {
             cunit->key_type = REDIS_STRING;
 
-            ret = redis_msg_append_command_full(msg, "get", cunit->key, NULL);
+            arg = array_push(&args);
+            *arg = sdsnew("get");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
+            }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
             }
         } else if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_STATUS_LIST, 
             rmt_strlen(REDIS_REPLY_STATUS_LIST)) == 0) {
             cunit->key_type = REDIS_LIST;
 
-            ret = redis_msg_append_command_full(msg, "lrange", cunit->key, "0", "-1", NULL);
+            arg = array_push(&args);
+            *arg = sdsnew("lrange");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            arg = array_push(&args);
+            *arg = sdsnew("0");
+            arg = array_push(&args);
+            *arg = sdsnew("-1");
+            ret = redis_msg_append_command_full_safe(msg, &args);
             //ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
             }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
+            }
         } else if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_STATUS_SET, 
             rmt_strlen(REDIS_REPLY_STATUS_SET)) == 0) {
             cunit->key_type = REDIS_SET;
 
+            arg = array_push(&args);
+            *arg = sdsnew("sort");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            arg = array_push(&args);
+            *arg = sdsnew("ALPHA");
             //ret = redis_msg_append_command_full(msg, "smembers", cunit->key, NULL);
-            ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
+            ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
+            }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
             }
         } else if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_STATUS_ZSET, 
             rmt_strlen(REDIS_REPLY_STATUS_ZSET)) == 0) {
             cunit->key_type = REDIS_ZSET;
 
-            ret = redis_msg_append_command_full(msg, "zrange", cunit->key, "0", "-1", NULL);
+            arg = array_push(&args);
+            *arg = sdsnew("zrange");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            arg = array_push(&args);
+            *arg = sdsnew("0");
+            arg = array_push(&args);
+            *arg = sdsnew("-1");
+            ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
+            }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
             }
         } else if (msg_cmp_str(resp, (const uint8_t*)REDIS_REPLY_STATUS_HASH, 
             rmt_strlen(REDIS_REPLY_STATUS_HASH)) == 0) {
             cunit->key_type = REDIS_HASH;
 
-            ret = redis_msg_append_command_full(msg, "hgetall", cunit->key, NULL);
+            arg = array_push(&args);
+            *arg = sdsnew("hgetall");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
+            }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
             }
         } else {
             log_error("ERROR: response key type from node[%s] is error: ",
@@ -477,11 +538,19 @@ static int check_response(redis_node *rnode, struct msg *r)
                 log_error("ERROR: out of memory.");
                 goto error;
             }
-            
-            ret = redis_msg_append_command_full(msg, "ttl", cunit->key, NULL);
+
+            arg = array_push(&args);
+            *arg = sdsnew("ttl");
+            arg = array_push(&args);
+            *arg = sdsdup(cunit->key);
+            ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
+            }
+            while (array_n(&args) > 0) {
+                arg = array_pop(&args);
+                sdsfree(*arg);
             }
             
             msg->ptr = cunit;
@@ -552,6 +621,8 @@ next_step:
         msg_put(resp);
         msg_free(resp);
     }
+
+    array_deinit(&args);
     
     return RMT_OK;
 
@@ -582,6 +653,12 @@ error:
     }
 
     check_unit_destroy(cunit);
+    
+    while (array_n(&args) > 0) {
+        arg = array_pop(&args);
+        sdsfree(*arg);
+    }
+    array_deinit(&args);
     
     return RMT_OK;
 }

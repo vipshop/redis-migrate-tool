@@ -59,6 +59,7 @@ array_deinit(struct array *a)
 
     if (a->elem != NULL) {
         rmt_free(a->elem);
+        a->elem = NULL;
     }
 }
 

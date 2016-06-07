@@ -5056,6 +5056,33 @@ int redis_msg_append_command_full(struct msg * msg, ...)
     return RMT_OK;
 }
 
+/* sds in args */
+int redis_msg_append_command_full_safe(struct msg * msg, struct array *args)
+{
+    int ret;
+    sds *arg;
+    uint32_t j, count;
+
+    count = array_n(args);
+
+    ret = redis_msg_append_multi_bulk_len_full(msg, count);
+    if (ret != RMT_OK) {
+        log_error("ERROR: msg append multi bulk len failed.");
+        return RMT_ERROR;
+    }
+
+    for (j = 0; j < count; j ++) {
+        arg = array_get(args, j);
+        ret = redis_msg_append_bulk_full(msg, *arg, (uint32_t)sdslen(*arg));
+        if (ret != RMT_OK) {
+            log_error("ERROR: msg append multi bulk failed.");
+            return RMT_ERROR;
+        }
+    }
+
+    return RMT_OK;
+}
+
 struct msg *redis_generate_msg_with_key_value(rmtContext *ctx, mbuf_base *mb, 
     int data_type, sds key, struct array *value, int expiretime_type, sds expiretime)
 {

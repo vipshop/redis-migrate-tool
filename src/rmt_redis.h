@@ -234,6 +234,7 @@ int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len);
 int redis_msg_append_multi_bulk_len_full(struct msg *msg, uint32_t integer);
 int redis_msg_append_bulk_full(struct msg *msg, const char *str, uint32_t len);
 int redis_msg_append_command_full(struct msg * msg, ...);
+int redis_msg_append_command_full_safe(struct msg * msg, struct array *args);
 struct msg *redis_generate_msg_with_key_value(struct rmtContext *ctx, mbuf_base *mb, int data_type, sds key, struct array *value, int expiretime_type, sds expiretime);
 struct msg *redis_generate_msg_with_key_expire(struct rmtContext *ctx, mbuf_base *mb, sds key, int expiretime_type, sds expiretime);
 int redis_key_value_send(redis_node *srnode, sds key, int data_type, struct array *value, int expiretime_type, long long expiretime, void *data);
