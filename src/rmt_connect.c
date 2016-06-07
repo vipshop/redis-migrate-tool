@@ -89,6 +89,8 @@ static uint64_t total_bytes_received(rmtContext *ctx)
     struct array *rdatas = ctx->rdatas;
     thread_data *rdata;
 
+    if (rdatas == NULL) return 0;
+
     for (i = 0; i < array_n(rdatas); i++) {
         rdata = array_get(rdatas, i);
         bytes += rdata->stat_total_net_input_bytes;

@@ -2219,9 +2219,10 @@ void redis_migrate(rmtContext *ctx, int type)
             node_next_nodes_count ++;
             rnode = rnode->next;
         }
-        if (node_next_nodes_count != wdata->nodes_count) {
+        if (node_next_nodes_count != wdata->nodes_count && 
+            srgroup->kind != GROUP_TYPE_RDBFILE) {
             log_error("Error: node_next_nodes_count %d != write_data->nodes_count %d.", 
-                listLength(wdata->nodes), wdata->nodes_count);
+                node_next_nodes_count, wdata->nodes_count);
             goto done;
         }
     }
