@@ -683,6 +683,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
     rdb->state = 0;
 
     rdb->deleted = 0;
+    rdb->received = 0;
 
     rdb->handler = NULL;
 
@@ -1341,8 +1342,6 @@ static void rmtRedisRdbDataPost(redis_node *srnode)
 
 static int rmtRedisSlavePrepareOnline(redis_node *srnode)
 {
-    struct mbuf *mbuf;
-    redis_rdb *rdb = srnode->rdb;
     thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
     redis_repl *rr = srnode->rr;
@@ -1359,27 +1358,6 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     }
     
     log_debug(LOG_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
-
-    mbuf = rdb->mbuf;
-    if (mbuf != NULL && mbuf_length(mbuf) > 0) {
-        rmtRedisRdbDataPost(srnode);
-    }
-    
-    if (rdb->mbuf != NULL) {
-        if(rdb->mb != NULL) {
-            mbuf_put(rdb->mbuf);
-        }
-
-        rdb->mbuf = NULL;
-    }
-
-    if (rdb->type == REDIS_RDB_TYPE_FILE) {
-        close(rdb->fd);
-        rdb->fd = -1;
-        log_notice("rdb file %s write complete", 
-            rdb->fname);
-        notice_write_thread(srnode);
-    }
     
     rmt_set_nonblocking(tc->sd);
     rmt_set_tcpnodelay(tc->sd);
@@ -1636,8 +1614,40 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
         aeDeleteFileEvent(rdata->loop, fd, AE_READABLE);
         log_notice("MASTER <-> SLAVE sync: RDB data for node[%s] is received, used: %lld s", 
             srnode->addr, (now - srnode->timestamp)/1000);
-        srnode->timestamp = now;
 
+        rdb->received = 1;
+
+        /* complete the rdb data */
+        mbuf = rdb->mbuf;
+        if (mbuf != NULL && mbuf_length(mbuf) > 0) {
+            rmtRedisRdbDataPost(srnode);
+        }
+        if (rdb->mbuf != NULL) {
+            if(rdb->mb != NULL) {
+                mbuf_put(rdb->mbuf);
+            }
+
+            rdb->mbuf = NULL;
+        }
+        if (rdb->type == REDIS_RDB_TYPE_FILE) {
+            close(rdb->fd);
+            rdb->fd = -1;
+            log_notice("rdb file %s write complete", 
+                rdb->fname);
+            notice_write_thread(srnode);
+        }
+        rdata->stat_rdb_received_count ++;
+        
+        if (srnode->ctx->target_type == GROUP_TYPE_RDBFILE) {
+            rmtRedisSlaveOffline(srnode);
+            rr->repl_state = REDIS_REPL_NONE;   /* Never reconnect to the master */
+            log_notice("Rdb file received, disconnect from the node[%s]", 
+                srnode->addr);
+            notice_write_thread(srnode);    /* Let the next node begin replication */
+            return;
+        }
+
+        srnode->timestamp = now;
         ret = rmtRedisSlavePrepareOnline(srnode);
         if (ret != RMT_OK) {
             goto error;
@@ -2014,6 +2024,17 @@ void redisSlaveReplCorn(redis_node *srnode)
     if (rr->repl_state == REDIS_REPL_CONNECT) {
         ASSERT(tc->sd < 0);
         ASSERT((tc->flags & RMT_CONNECTED) == 0);
+
+        /* target type is rdb file, and rdb file already received, avoid reconnect the master  */
+        log_notice("srnode->ctx->target_type: %d, srnode->rdb->received: %d", 
+        srnode->ctx->target_type, srnode->rdb->received);
+        if (srnode->ctx->target_type == GROUP_TYPE_RDBFILE && 
+            srnode->rdb->received == 1) {
+            return;
+        }
+
+        log_notice("Reconnect to node[%s] for replication", 
+            srnode->addr);
         
         ret = rmt_tcp_context_reconnect(tc);
         if (ret != RMT_OK) {

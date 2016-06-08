@@ -420,6 +420,11 @@ void redis_testinsert_data(rmtContext *ctx, int type)
         goto error;
     }
 
+    if (ctx->source_type == GROUP_TYPE_RDBFILE) {
+        log_error("ERROR: source type can not be rdb file for redis_testinsert command");
+        goto error;
+    }
+
     signal(SIGPIPE, SIG_IGN);
 
     /* Init the key count */

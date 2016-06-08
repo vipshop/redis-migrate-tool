@@ -18,7 +18,7 @@ To build redis-migrate-tool:
 
 ## RUN
 
-	src/redis-migrate-tool -c rmt.conf -o log -d
+    src/redis-migrate-tool -c rmt.conf -o log -d
 	
 ## WARNING
 
@@ -67,7 +67,7 @@ Config file has three parts: source, target and common.
 + **mbuf_size**: Mbuf size for request. Defaults to 512.
 + **noreply**: A boolean value that decide whether to check the target group replies. Defaults to false.
 + **source_safe**: A boolean value that protect the source group machines memory safe. If it is true, the tool can guarantee only one redis to generate rdb file at one time on the same machine for source group. In addition, 'source_safe: true' may use less threads then you set. Defaults to true.
-+ **dir**: Work directory. Defaults to the current directory.
++ **dir**: Work directory, used to store files(such as rdb file). Defaults to the current directory.
 + **filter**: Filter keys if they do not match the pattern. The pattern is Glob-style. Defaults is NULL.
 
 
@@ -77,9 +77,9 @@ For example, the configuration file shown below is to migrate data from single t
     type: single
     servers:
      - 127.0.0.1:6379
-	 - 127.0.0.1:6380
-	 - 127.0.0.1:6381
-	 - 127.0.0.1:6382
+     - 127.0.0.1:6380
+     - 127.0.0.1:6381
+     - 127.0.0.1:6382
 
     [target]
     type: twemproxy
@@ -92,38 +92,39 @@ For example, the configuration file shown below is to migrate data from single t
      - 127.0.0.1:6382:1 server3
      - 127.0.0.1:6383:1 server4
 	
-	[common]
-	listen: 0.0.0.0:34345
-	threads: 2
-	step: 10
-	mbuf_size: 1024
-	source_safe: true
-	
+    [common]
+    listen: 0.0.0.0:8888
+    threads: 2
+    step: 1
+    mbuf_size: 1024
+    source_safe: true
+
 
 Migrate data from twemproxy to redis cluster.
 
     [source]
     type: twemproxy
-	hash: fnv1a_64
+    hash: fnv1a_64
     hash_tag: "{}"
     distribution: ketama
     servers:
      - 127.0.0.1:6379
-	 - 127.0.0.1:6380
-	 - 127.0.0.1:6381
-	 - 127.0.0.1:6382
+     - 127.0.0.1:6380
+     - 127.0.0.1:6381
+     - 127.0.0.1:6382
 
     [target]
     type: redis cluster
     servers:
      - 127.0.0.1:7379
 	
-	[common]
-	step: 1
-	mbuf_size: 512
+    [common]
+    listen: 0.0.0.0:8888
+    step: 1
+    mbuf_size: 512
 	
 	
-Migrate data from rdb file to redis cluster.
+Load data from rdb file to redis cluster.
 
     [source]
     type: rdb file
@@ -136,11 +137,25 @@ Migrate data from rdb file to redis cluster.
     servers:
      - 127.0.0.1:7379
 	
-	[common]
-	threads: 1
-	step: 5
-	mbuf_size: 512
-	source_safe: false
+    [common]
+    listen: 0.0.0.0:8888
+    step: 2
+    mbuf_size: 512
+    source_safe: false
+    
+Just save rdb file from redis cluster.
+
+    [source]
+    type: redis cluster
+    servers:
+     - 127.0.0.1:7379
+	
+    [target]
+    type: rdb file
+	
+    [common]
+    listen: 0.0.0.0:8888
+    source_safe: true
 
 ## STATUS
 
@@ -150,43 +165,45 @@ You can use redis-cli to connect with redis-migrate-tool. The listening address 
 
 For example, you try the **info** command:
 	
-	$redis-cli -h 127.0.0.1 -p 8888
+    $redis-cli -h 127.0.0.1 -p 8888
     127.0.0.1:8888> info
-	# Server
-	version:0.1.0
-	os:Linux 2.6.32-573.12.1.el6.x86_64 x86_64
-	multiplexing_api:epoll
-	gcc_version:4.4.7
-	process_id:9199
-	tcp_port:8888
-	uptime_in_seconds:1662
-	uptime_in_days:0
-	config_file:/ect/rmt.conf
+    # Server
+    version:0.1.0
+    os:Linux 2.6.32-573.12.1.el6.x86_64 x86_64
+    multiplexing_api:epoll
+    gcc_version:4.4.7
+    process_id:9199
+    tcp_port:8888
+    uptime_in_seconds:1662
+    uptime_in_days:0
+    config_file:/ect/rmt.conf
 	
-	# Clients
-	connected_clients:1
-	max_clients_limit:100
-	total_connections_received:3
+    # Clients
+    connected_clients:1
+    max_clients_limit:100
+    total_connections_received:3
 	
-	# Memory
-	mem_allocator:jemalloc-4.0.4
+    # Memory
+    mem_allocator:jemalloc-4.0.4
 	
-	# Group
-	source_nodes_count:32
-	target_nodes_count:48
+    # Group
+    source_nodes_count:32
+    target_nodes_count:48
 	
-	# Stats
-	all_rdb_parsed:1
-	rdb_parsed_count:32
-	total_msgs_recv:7753587
-	total_msgs_sent:7753587
-	total_net_input_bytes:234636318
-	total_net_output_bytes:255384129
-	total_net_input_bytes_human:223.77M
-	total_net_output_bytes_human:243.55M
-	total_mbufs_inqueue:0
-	total_msgs_outqueue:0
-	127.0.0.1:8888>
+    # Stats
+    all_rdb_received:1
+    all_rdb_parsed:1
+    rdb_received_count:32
+    rdb_parsed_count:32
+    total_msgs_recv:7753587
+    total_msgs_sent:7753587
+    total_net_input_bytes:234636318
+    total_net_output_bytes:255384129
+    total_net_input_bytes_human:223.77M
+    total_net_output_bytes_human:243.55M
+    total_mbufs_inqueue:0
+    total_msgs_outqueue:0
+    127.0.0.1:8888>
 	
 **info** command response instruction:
 	
@@ -215,8 +232,10 @@ For example, you try the **info** command:
 
 #### Stats:
 
-+ **all_rdb_parsed**: Whether the all the rdb of the nodes in source group parsed finished.
-+ **rdb_parsed_count**: The parsed finished rdb count for the nodes in source group .
++ **all_rdb_received**: Whether all the rdb of the nodes in source group received.
++ **all_rdb_parsed**: Whether all the rdb of the nodes in source group parsed finished.
++ **rdb_received_count**: The received rdb count for the nodes in source group.
++ **rdb_parsed_count**: The parsed finished rdb count for the nodes in source group.
 + **total_msgs_recv**: The total count of messages that had received from the source group.
 + **total_msgs_sent**: The total count of messages that had sent to the target group and received response from target group.
 + **total_net_input_bytes**: The total count of input bytes that had received from the source group.
@@ -232,31 +251,31 @@ After migrate the data, you can use **redis_check** command to check data in the
 
 Try the **redis_check** command:
 
-	$src/redis-migrate-tool -c rmt.conf -o log -C redis_check
-	Check job is running...
+    $src/redis-migrate-tool -c rmt.conf -o log -C redis_check
+    Check job is running...
 
-	Checked keys: 1000
-	Inconsistent value keys: 0
-	Inconsistent expire keys : 0
-	Other check error keys: 0
-	Checked OK keys: 1000
+    Checked keys: 1000
+    Inconsistent value keys: 0
+    Inconsistent expire keys : 0
+    Other check error keys: 0
+    Checked OK keys: 1000
 
-	All keys checked OK!
-	Check job finished, used 1.041s
+    All keys checked OK!
+    Check job finished, used 1.041s
 	
 If you want check more keys, try the follow:
 
-	$src/redis-migrate-tool -c rmt.conf -o log -C "redis_check 200000"
-	Check job is running...
+    $src/redis-migrate-tool -c rmt.conf -o log -C "redis_check 200000"
+    Check job is running...
 
-	Checked keys: 200000
-	Inconsistent value keys: 0
-	Inconsistent expire keys : 0
-	Other check error keys: 0
-	Checked OK keys: 200000
+    Checked keys: 200000
+    Inconsistent value keys: 0
+    Inconsistent expire keys : 0
+    Other check error keys: 0
+    Checked OK keys: 200000
 
-	All keys checked OK!
-	Check job finished, used 11.962s
+    All keys checked OK!
+    Check job finished, used 11.962s
 
 	
 ## INSERT SOME KEYS JUST FOR **TEST**

@@ -236,6 +236,7 @@ typedef struct thread_data{
     volatile uint64_t stat_total_msgs_sent;         /* total msg received for this thread */
     volatile uint64_t stat_total_net_input_bytes;   /* total bytes received from source group for this read thread */
     volatile uint64_t stat_total_net_output_bytes;  /* total bytes sent to target group for this write thread */
+    volatile int      stat_rdb_received_count;      /* the rdb received count for this read thread */
     volatile int      stat_rdb_parsed_count;        /* the rdb parse finished count for this write thread */
     volatile uint64_t stat_mbufs_inqueue;           /* the count of mbufs that recived from source group */
     volatile uint64_t stat_msgs_outqueue;           /* the count of msgs that will be sent to target group and msgs had been sent to target but waiting for the response */

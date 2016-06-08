@@ -38,6 +38,7 @@ int thread_data_init(thread_data *tdata)
     tdata->stat_total_msgs_sent = 0;
     tdata->stat_total_net_input_bytes = 0;
     tdata->stat_total_net_output_bytes = 0;
+    tdata->stat_rdb_received_count = 0;
     tdata->stat_rdb_parsed_count = 0;
     tdata->stat_mbufs_inqueue = 0;    
     tdata->stat_msgs_outqueue = 0;
@@ -159,11 +160,6 @@ static int write_thread_data_init(rmtContext *ctx, thread_data *wdata)
     wdata->trgroup = target_group_create(ctx);
     if (wdata->trgroup == NULL) {
         log_error("ERROR: Target group create failed");
-        goto error;
-    }
-
-    if (wdata->trgroup->kind == GROUP_TYPE_RDBFILE) {
-        log_error("ERROR: Target group type can't be rdb file now");
         goto error;
     }
 
@@ -1550,6 +1546,13 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
 
     if (rdb->type == REDIS_RDB_TYPE_FILE) {
         aeDeleteFileEvent(wdata->loop, srnode->sockpairfds[1], AE_READABLE);
+
+        if (srnode->ctx->target_type == GROUP_TYPE_RDBFILE) {
+            if (srnode->next != NULL) {
+                rmt_write(srnode->next->sockpairfds[1], " ", 1);
+            }
+            return;
+        }
         
         if (srnode->sk_event < 0) {
             srnode->sk_event = socket(AF_INET, SOCK_STREAM, 0);

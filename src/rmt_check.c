@@ -866,6 +866,12 @@ void redis_check_data(rmtContext *ctx, int type)
         goto error;
     }
 
+    if (ctx->source_type == GROUP_TYPE_RDBFILE || 
+        ctx->target_type == GROUP_TYPE_RDBFILE) {
+        log_error("ERROR: source and target type can not be rdb file for redis_check command");
+        goto error;
+    }
+
     signal(SIGPIPE, SIG_IGN);
 
     if (array_n(&ctx->args) == 1) {

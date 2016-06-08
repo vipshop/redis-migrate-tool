@@ -134,6 +134,15 @@ init_context(struct instance *rmti)
 
     rmt_ctx->cf = cf;
 
+    rmt_ctx->source_type = cf->source_pool.type;
+    rmt_ctx->target_type = cf->target_pool.type;
+    if (rmt_ctx->source_type == GROUP_TYPE_RDBFILE && 
+        rmt_ctx->target_type == GROUP_TYPE_RDBFILE) {
+        log_error("ERROR: source group and target group type can't be rdb file at the same time");
+        destroy_context(rmt_ctx);
+        return NULL;
+    }
+
     if(cf->maxmemory != CONF_UNSET_NUM){
         rmt_ctx->buffer_size = (uint64_t)cf->maxmemory;
     }
@@ -163,6 +172,20 @@ init_context(struct instance *rmti)
     }
 
     if (cf->dir != CONF_UNSET_PTR) {
+        if (access(cf->dir, F_OK) < 0) {
+            log_error("ERROR: work directory[%s] in config file does not exist", 
+                cf->dir);
+            destroy_context(rmt_ctx);
+            return NULL;
+        }
+
+        if (access(cf->dir, R_OK|W_OK) < 0) {
+            log_error("ERROR: work directory[%s] in config file does not have read or write permissions", 
+                cf->dir);
+            destroy_context(rmt_ctx);
+            return NULL;
+        }
+        
         rmt_ctx->dir = sdsdup(cf->dir);
     }
 

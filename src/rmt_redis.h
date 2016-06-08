@@ -90,7 +90,8 @@ typedef struct redis_rdb{
 
     int state;
 
-    int deleted:1;  		/* if the rdb file deleted after parse */
+    uint8_t deleted:1;  		/* if the rdb file deleted after parse */
+    uint8_t received:1;         /* if the rdb file had received */
 
     int (*handler)(struct redis_node *, sds, int, struct array *, int, long long, void *);
 }redis_rdb;

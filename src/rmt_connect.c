@@ -19,6 +19,43 @@ static uint32_t target_group_nodes_count(rmtContext *ctx)
     return (uint32_t)dictSize(wdata->trgroup->nodes);
 }
 
+static int all_rdb_received_finished(rmtContext *ctx)
+{
+    uint32_t i;
+    int finished = 1;
+    struct array *rdatas = ctx->rdatas;
+    thread_data *rdata;
+
+    if (rdatas == NULL) return 0;
+
+    for (i = 0; i < array_n(rdatas); i++) {
+        rdata = array_get(rdatas, i);
+        if (rdata->stat_rdb_received_count < rdata->nodes_count) {
+            finished = 0;
+            break;
+        }
+    }
+
+    return finished;
+}
+
+static int rdb_received_finished_count(rmtContext *ctx)
+{
+    uint32_t i;
+    int count = 0;
+    struct array *rdatas = ctx->rdatas;
+    thread_data *rdata;
+
+    if (rdatas == NULL) return 0;
+
+    for (i = 0; i < array_n(rdatas); i++) {
+        rdata = array_get(rdatas, i);
+        count += rdata->stat_rdb_received_count;
+    }
+
+    return count;
+}
+
 static int all_rdb_parse_finished(rmtContext *ctx)
 {
     uint32_t i;
@@ -246,7 +283,9 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
+            "all_rdb_received:%d\r\n"
             "all_rdb_parsed:%d\r\n"
+            "rdb_received_count:%d\r\n"
             "rdb_parsed_count:%d\r\n"
             "total_msgs_recv:%"PRIu64"\r\n"
             "total_msgs_sent:%"PRIu64"\r\n"
@@ -256,7 +295,9 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             "total_net_output_bytes_human:%s\r\n"
             "total_mbufs_inqueue:%"PRIu64"\r\n"
             "total_msgs_outqueue:%"PRIu64"\r\n",
+            all_rdb_received_finished(ctx),
             all_rdb_parse_finished(ctx),
+            rdb_received_finished_count(ctx),
             rdb_parse_finished_count(ctx),
             total_msgs_received(ctx),
             total_msgs_sent(ctx),
