@@ -30,7 +30,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define REDIS_RDB_VERSION 6
+#define REDIS_RDB_VERSION 7
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -73,11 +73,14 @@
 #define REDIS_RDB_TYPE_SET_INTSET    11
 #define REDIS_RDB_TYPE_ZSET_ZIPLIST  12
 #define REDIS_RDB_TYPE_HASH_ZIPLIST  13
+#define REDIS_RDB_TYPE_LIST_QUICKLIST 14
 
 /* Test if a type is an object type. */
 #define rdbIsObjectType(t) ((t >= 0 && t <= 4) || (t >= 9 && t <= 13))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define REDIS_RDB_OPCODE_AUX        250
+#define REDIS_RDB_OPCODE_RESIZEDB   251
 #define REDIS_RDB_OPCODE_EXPIRETIME_MS 252
 #define REDIS_RDB_OPCODE_EXPIRETIME 253
 #define REDIS_RDB_OPCODE_SELECTDB   254
@@ -5569,7 +5572,8 @@ static sds redis_rdb_file_load_str(redis_rdb *rdb)
             return redis_rdb_file_load_lzf_str(rdb);
             break;
         default:
-            log_error("ERROR: Unknown RDB encoding type");
+            log_error("ERROR: Unknown RDB encoding type %"PRIu32"", len);
+            return NULL;
             break;
         }
     }
@@ -5670,11 +5674,46 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
             str = array_push(value);
             if ((*str = redis_rdb_file_load_str(rdb)) == NULL) goto error;
         }
-    }else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
+    } else if (rdbtype == REDIS_RDB_TYPE_LIST_QUICKLIST) {
+        if ((len = redis_rdb_file_load_len(rdb,NULL)) == REDIS_RDB_LENERR) goto error;
+
+        value = redis_value_create((uint32_t)(len));
+        if (value == NULL) {
+            log_error("ERROR: Out of memory");
+            goto error;
+        }
+
+        while (len--) {
+            unsigned char *zl;
+            unsigned int count;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
+
+            zl = redis_rdb_file_load_str(rdb);
+            
+            count = ziplistLen(zl);
+            eptr = ziplistIndex(zl,0);
+            while (eptr != NULL) {
+                ziplistGet(eptr,&vstr,&vlen,&vlong);
+
+                str = array_push(value);
+
+                if (vstr == NULL) {
+                    *str = sdsfromlonglong(vlong);
+                } else {
+                    *str = sdsnewlen(vstr, vlen);
+                }
+                
+                eptr = ziplistNext(zl,eptr);
+            }
+        }
+    } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||
                rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST ||
-               rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST){
+               rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST) {
         if ((elems = redis_rdb_file_load_str(rdb)) == NULL) goto error;
 
         switch(rdbtype) {
@@ -5856,6 +5895,7 @@ static int redis_object_type_get_by_rdbtype(int dbtype)
         break;
     case REDIS_RDB_TYPE_LIST:
     case REDIS_RDB_TYPE_LIST_ZIPLIST:
+    case REDIS_RDB_TYPE_LIST_QUICKLIST:
 
         return REDIS_LIST;
         break;
@@ -6099,7 +6139,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
         rdbver = rmt_atoi(buf+len, 4);
         if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
-            log_error("ERROR: Redis rdb file %s version is error: %d",
+            log_error("ERROR: Can't handle RDB format version %d",
                 rdb->fname, rdbver);
             goto error;
         }
@@ -6149,13 +6189,9 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             }
 
             expiretime_type = RMT_TIME_MILLISECOND;
-        }
-
-        if (type == REDIS_RDB_OPCODE_EOF) {
+        } else if (type == REDIS_RDB_OPCODE_EOF) {
             break;
-        }
-
-        if (type == REDIS_RDB_OPCODE_SELECTDB) {
+        } else if (type == REDIS_RDB_OPCODE_SELECTDB) {
             if ((dbid = redis_rdb_file_load_len(rdb, NULL)) 
                 == REDIS_RDB_LENERR) {
                 log_error("ERROR: redis rdb file %s read db num error", 
@@ -6164,6 +6200,31 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             }
 
             log_debug(LOG_INFO, "dbid: %d", dbid);
+            continue;
+        } else if (type == REDIS_RDB_OPCODE_RESIZEDB) {
+            uint32_t db_size, expires_size;
+            if ((db_size = redis_rdb_file_load_len(rdb, NULL)) 
+                == REDIS_RDB_LENERR) {
+                log_error("ERROR: redis rdb file %s read db num error", 
+                    rdb->fname);
+                goto eoferr;
+            }
+            if ((expires_size = redis_rdb_file_load_len(rdb, NULL)) 
+                == REDIS_RDB_LENERR) {
+                log_error("ERROR: redis rdb file %s read db num error", 
+                    rdb->fname);
+                goto eoferr;
+            }
+            continue;
+        } else if (type == REDIS_RDB_OPCODE_AUX) {
+            sds auxkey, auxval;
+            if ((auxkey = redis_rdb_file_load_str(rdb)) == NULL) goto eoferr;
+            if ((auxval = redis_rdb_file_load_str(rdb)) == NULL) {
+                sdsfree(auxkey);
+                goto eoferr;
+            }
+            sdsfree(auxkey);
+            sdsfree(auxval);
             continue;
         }
 
