@@ -1761,8 +1761,13 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
                 msg_type_string(msg->type));
             continue;
         }else{
-            MSG_DUMP_ALL(msg, LOG_NOTICE, 0);
-            mbuf_list_dump_all(srnode->piece_data, LOG_NOTICE);
+            if (msg_cmp_str(msg, "PING\r\n", 6) == 0) {
+                /* just drop this msg, due to the redis-2.4 */
+            } else {
+                MSG_DUMP_ALL(msg, LOG_NOTICE, 0);
+                mbuf_list_dump_all(srnode->piece_data, LOG_NOTICE);
+            }
+            
             msg_put(srnode->msg);
             msg_free(srnode->msg);
             srnode->msg = NULL;

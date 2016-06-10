@@ -673,6 +673,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type)
     }
 
     rdb->type = REDIS_RDB_TYPE_UNKNOW;
+    rdb->rdbver = 0;
     rdb->mb = NULL;
     rdb->mbuf = NULL;
     rdb->data = NULL;
@@ -2057,7 +2058,8 @@ void redisSlaveReplCorn(redis_node *srnode)
     }
 
     /* Send ACK to master from time to time. */
-    if (rr->repl_state == REDIS_REPL_CONNECTED) {
+    if (rr->repl_state == REDIS_REPL_CONNECTED && 
+        !(rr->flags & REDIS_PRE_PSYNC)) {
         char buf[64];
         int len;
         len = rmt_lltoa(buf, 64, rr->reploff);
@@ -4863,6 +4865,33 @@ void redis_post_coalesce(struct msg *r)
     }
 }
 
+char *
+get_redis_type_string(int type)
+{
+    switch (type) {
+    case REDIS_STRING:
+        return "string";
+        break;
+    case REDIS_LIST:
+        return "list";
+        break;
+    case REDIS_SET:
+        return "set";
+        break;
+    case REDIS_ZSET:
+        return "zset";
+        break;
+    case REDIS_HASH:
+        return "hash";
+        break;
+    default:
+        return "unknow";
+        break;
+    }
+
+    return "unknow";
+}
+
 /* ========================== Redis RDB ============================ */
 
 void
@@ -6091,7 +6120,6 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     size_t len;
     uint32_t dbid;
     unsigned char type;
-    int rdbver;
     int32_t t32;
     int64_t t64;
     long long expiretime = -1, now;
@@ -6137,10 +6165,10 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             goto error;
         }
 
-        rdbver = rmt_atoi(buf+len, 4);
-        if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
+        rdb->rdbver = rmt_atoi(buf+len, 4);
+        if (rdb->rdbver < 1 || rdb->rdbver > REDIS_RDB_VERSION) {
             log_error("ERROR: Can't handle RDB format version %d",
-                rdb->fname, rdbver);
+                rdb->fname, rdb->rdbver);
             goto error;
         }
 
@@ -6270,7 +6298,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         }
     }
 
-    if (rdbver >= 5 && rdb->update_cksum) {
+    if (rdb->rdbver >= 5 && rdb->update_cksum) {
         uint64_t cksum, expected = rdb->cksum;
         if (redis_rdb_file_read(rdb,&cksum,8) != RMT_OK) goto eoferr;
 

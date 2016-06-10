@@ -75,6 +75,7 @@ struct mbuf_base;
 
 typedef struct redis_rdb{
     int type;       		/* rdb type: file or memory */
+    int rdbver;             /* rdb version */
     
     struct mbuf_base *mb;   /* need to release */
     mttlist *data;     		/* type: mbuf */
@@ -242,6 +243,8 @@ int redis_key_value_send(redis_node *srnode, sds key, int data_type, struct arra
 
 struct array *redis_value_create(uint32_t nelem);
 void redis_value_destroy(struct array *value);
+
+char *get_redis_type_string(int type);
 
 #endif
 

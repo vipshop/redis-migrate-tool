@@ -637,9 +637,10 @@ error:
     chdata->err_check_keys_count ++;
 
     if (cunit->key != NULL) {        
-        log_error("ERROR: key checked failed: %s%s. key(len:%zu): %.*s",  
+        log_error("ERROR: key checked failed: %s%s. key(len:%zu, type:%s): %.*s",  
             get_check_error(cunit), extra_err, 
-            sdslen(cunit->key), sdslen(cunit->key), cunit->key);
+            sdslen(cunit->key), get_redis_type_string(cunit->key_type),
+            sdslen(cunit->key), cunit->key);
     } else {
         log_error("ERROR: key checked failed: %s%s.", 
             get_check_error(cunit), extra_err);
