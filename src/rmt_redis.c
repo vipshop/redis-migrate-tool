@@ -7629,3 +7629,291 @@ int redis_rdb_file_init_from_conf(redis_group *rgroup, conf_pool *cp)
 
 /* ======================== Redis Rdb file END ========================== */
 
+static int
+get_char_from_mbuf_list(list *mbufs, listNode **node, uint8_t **pos, uint8_t *ch)
+{
+    struct mbuf *mbuf;
+    
+    if (mbufs == NULL || node == NULL || pos == NULL || ch == NULL) {
+        return RMT_ERROR;
+    }
+
+    if (*node == NULL) {
+        *node = listFirst(mbufs);
+    }
+    mbuf = listNodeValue(*node);
+
+    if (*pos == NULL) {
+        *pos = mbuf->start;
+    }
+
+    if (*pos < mbuf->start || *pos > mbuf->last) {
+        log_debug(LOG_ERR, "ERROR: mbuf start: %p, mbuf last: %p, pos: %p", 
+            mbuf->start, mbuf->last, *pos);
+        return RMT_ERROR;
+    }
+
+    while (*pos == mbuf->last) {
+        *node = (*node)->next;
+        if (*node == NULL) {
+            return RMT_ERROR;
+        }
+
+        mbuf = listNodeValue(*node);
+        *pos = mbuf->start;
+    }
+
+    ch[0] = (*pos)[0];
+    (*pos) ++;
+    if (*pos > mbuf->last) {
+        *node = (*node)->next;
+        if (*node == NULL) {
+            *pos = NULL;
+            return RMT_OK;
+        }
+
+        mbuf = listNodeValue(*node);
+        *pos = mbuf->start;
+    }
+
+    return RMT_OK;
+}
+
+static int
+get_bulk_count_from_mbuf_list(list *mbufs, listNode **node, uint8_t **pos)
+{
+    struct mbuf *mbuf;
+    uint8_t buf[1];
+    int count = 0;
+    
+    if (mbufs == NULL || node == NULL || pos == NULL) {
+        return -1;
+    }
+
+    if (*node == NULL) {
+        *node = listFirst(mbufs);
+    }
+    mbuf = listNodeValue(*node);
+
+    if (*pos == NULL) {
+        *pos = mbuf->start;
+    }
+
+    if (*pos < mbuf->start || *pos > mbuf->last) {
+        log_debug(LOG_ERR, "ERROR: mbuf start: %p, mbuf last: %p, pos: %p", 
+            mbuf->start, mbuf->last, *pos);
+        return -1;
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        return -1;
+    }
+    if (buf[0] != '*') {
+        return -1;
+    }
+
+    while (get_char_from_mbuf_list(mbufs, node, pos, buf) == RMT_OK) {
+        if (buf[0] < '0' || buf[0] > '9') {
+            break;
+        }
+
+        count = count*10 + (buf[0]-'0');
+    }
+
+    if (buf[0] != CR) {
+        return -1;
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        return -1;
+    }
+    if (buf[0] != LF) {
+        return -1;
+    }
+
+    return count;
+}
+
+static int
+get_bulk_len_from_mbuf_list(list *mbufs, listNode **node, uint8_t **pos)
+{
+    struct mbuf *mbuf;
+    uint8_t buf[1];
+    int len = 0;
+    
+    if (mbufs == NULL || node == NULL || pos == NULL) {
+        return -1;
+    }
+
+    if (*node == NULL) {
+        *node = listFirst(mbufs);
+    }
+    mbuf = listNodeValue(*node);
+
+    if (*pos == NULL) {
+        *pos = mbuf->start;
+    }
+
+    if (*pos < mbuf->start || *pos > mbuf->last) {
+        log_debug(LOG_ERR, "ERROR: mbuf start: %p, mbuf last: %p, pos: %p", 
+            mbuf->start, mbuf->last, *pos);
+        return -1;
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        return -1;
+    }
+    if (buf[0] != '$') {
+        return -1;
+    }
+
+    while (get_char_from_mbuf_list(mbufs, node, pos, buf) == RMT_OK) {
+        if (buf[0] < '0' || buf[0] > '9') {
+            break;
+        }
+
+        len = len*10 + (buf[0]-'0');
+    }
+
+    if (buf[0] != CR) {
+        return -1;
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        return -1;
+    }
+    if (buf[0] != LF) {
+        return -1;
+    }
+
+    return len;
+}
+
+static sds
+get_bulk_from_mbuf_list(list *mbufs, listNode **node, uint8_t **pos, int bulk_len)
+{
+    sds str;
+    struct mbuf *mbuf;
+    int left_len, len;
+    uint8_t buf[1];
+
+    if (mbufs == NULL || node == NULL || pos == NULL || bulk_len < 0) {
+        return NULL;
+    }
+
+    str = sdsempty();
+    str = sdsMakeRoomFor(str, len);
+
+    left_len = bulk_len;
+
+    while (left_len > 0) {
+        mbuf = listNodeValue(*node);
+        if (*pos < mbuf->start || *pos > mbuf->last) {
+            sdsfree(str);
+            log_debug(LOG_ERR, "ERROR: mbuf start: %p, mbuf last: %p, pos: %p", 
+                mbuf->start, mbuf->last, *pos);
+            return NULL;
+        }
+
+        len = MIN(left_len, (mbuf->last - *pos));
+        str = sdscatlen(str, *pos, len);
+        (*pos) += len;
+        left_len -= len;
+
+        if ((*pos) >= mbuf->last) {
+            *node = (*node)->next;
+            if (*node != NULL) {
+                mbuf = listNodeValue(*node);
+                *pos = mbuf->start;
+            }
+        }
+
+        if (*node == NULL && left_len > 0) {
+            sdsfree(str);
+            log_error("ERROR: node == NULL && left_len > 0");
+            return NULL;
+        }
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        sdsfree(str);
+        log_error("ERROR: read CR failed");
+        return NULL;
+    }
+    if (buf[0] != CR) {
+        sdsfree(str);
+        log_error("ERROR: read CR failed");
+        return NULL;
+    }
+
+    if (get_char_from_mbuf_list(mbufs, node, pos, buf) != RMT_OK) {
+        sdsfree(str);
+        log_error("ERROR: read LF failed");
+        return NULL;
+    }
+    if (buf[0] != LF) {
+        sdsfree(str);
+        log_error("ERROR: read LF failed");
+        return NULL;
+    }
+
+    return str;
+}
+
+struct array *
+get_multi_bulk_array_from_mbuf_list(list *mbufs)
+{
+    struct array *bulks = NULL;
+    sds *bulk;
+    listNode *node;
+    struct mbuf *mbuf;
+    uint8_t *pos;
+    int count, len;
+
+    if (mbufs == NULL) {
+        return NULL;
+    }
+
+    node = listFirst(mbufs);
+    mbuf = listNodeValue(node);
+    pos = mbuf->start;
+
+    count = get_bulk_count_from_mbuf_list(mbufs, &node, &pos);
+    if (count == -1) {
+        log_error("ERROR: get bulk count failed");
+        return NULL;
+    }
+
+    bulks = array_create(count<=0?1:count, sizeof(sds));
+    if (bulks == NULL) {
+        log_error("ERROR: out of memory");
+        goto error;
+    }
+
+    while (count --) {
+        mbuf = listNodeValue(node);
+        len = get_bulk_len_from_mbuf_list(mbufs, &node, &pos);
+        bulk = array_push(bulks);
+        mbuf = listNodeValue(node);
+        *bulk = get_bulk_from_mbuf_list(mbufs, &node, &pos, len);
+        if (*bulk == NULL) {
+            log_error("ERROR: read bulk failed");
+            goto error;
+        }
+    }
+
+    return bulks;
+
+error:
+
+    if (bulks != NULL) {
+        while (array_n(bulks) > 0) {
+            bulk = array_pop(bulks);
+            sdsfree(*bulk);
+        }
+        array_destroy(bulks);
+        bulks = NULL;
+    }
+
+    return NULL;
+}

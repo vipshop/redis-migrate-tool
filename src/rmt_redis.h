@@ -246,5 +246,7 @@ void redis_value_destroy(struct array *value);
 
 char *get_redis_type_string(int type);
 
+struct array *get_multi_bulk_array_from_mbuf_list(list *mbufs);
+
 #endif
 

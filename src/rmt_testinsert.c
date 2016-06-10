@@ -45,7 +45,7 @@ static uint32_t get_random_num(void)
 
 static uint8_t get_random_char(void)
 {
-    return (uint8_t)rand()%92 + 32;
+    return (uint8_t)rand()%250 + 5;
 }
 
 static sds get_random_key(int data_type)
@@ -437,9 +437,7 @@ void redis_testinsert_data(rmtContext *ctx, int type)
         data_types |= TEST_TYPE_REDIS_LIST;
         data_types |= TEST_TYPE_REDIS_SET;
         data_types |= TEST_TYPE_REDIS_ZSET;
-        /* redis_check command sometimes does not work for*/
-        /* hash type, so we don't insert hash by default. */
-        //data_types |= TEST_TYPE_REDIS_HASH;
+        data_types |= TEST_TYPE_REDIS_HASH;
 
         goto parse_done;
     } else if (array_n(&ctx->args) == 1) {
@@ -451,9 +449,7 @@ void redis_testinsert_data(rmtContext *ctx, int type)
             data_types |= TEST_TYPE_REDIS_LIST;
             data_types |= TEST_TYPE_REDIS_SET;
             data_types |= TEST_TYPE_REDIS_ZSET;
-            /* redis_check command sometimes does not work for*/
-            /* hash type, so we don't insert hash by default. */
-            //data_types |= TEST_TYPE_REDIS_HASH;
+            data_types |= TEST_TYPE_REDIS_HASH;
 
             goto parse_done;
         } else {

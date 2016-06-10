@@ -251,6 +251,51 @@ static char *get_check_error(check_unit *cunit)
     }
 }
 
+static int
+string_binary_cmp(const void *t1, const void *t2)
+{
+    const sds *str1 = t1, *str2 = t2;
+    size_t len1, len2;
+
+    len1 = sdslen(*str1);
+    len2 = sdslen(*str2);
+    
+    if (len1 > len2) {
+        return 1;
+    } else if (len1 < len2) {
+        return -1;
+    }
+
+    return memcmp(*str1, *str2, len1);
+}
+
+struct hash_data {
+    sds field;
+    sds value;
+};
+
+static int
+hash_data_field_cmp(const void *t1, const void *t2)
+{
+    const struct hash_data *hd1 = t1, *hd2 = t2;
+    sds field1, field2;
+    size_t len1, len2;
+
+    field1 = hd1->field;
+    field2 = hd2->field;
+
+    len1 = sdslen(field1);
+    len2 = sdslen(field2);
+    
+    if (len1 > len2) {
+        return 1;
+    } else if (len1 < len2) {
+        return -1;
+    }
+
+    return memcmp(field1, field2, len1);
+}
+
 #define TTL_MISTAKE_CAN_BE_ACCEPT   3
 static int check_response(redis_node *rnode, struct msg *r)
 {
@@ -262,6 +307,8 @@ static int check_response(redis_node *rnode, struct msg *r)
     char extra_err[50];
     struct array args;
     sds *arg;
+    struct array *bulks1 = NULL, *bulks2 = NULL;
+    sds *bulk1, *bulk2;
 
     if (r == NULL) {
         return RMT_ERROR;
@@ -406,7 +453,6 @@ static int check_response(redis_node *rnode, struct msg *r)
             arg = array_push(&args);
             *arg = sdsnew("-1");
             ret = redis_msg_append_command_full_safe(msg, &args);
-            //ret = redis_msg_append_command_full(msg, "sort", cunit->key, "ALPHA", NULL);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
                 goto error;
@@ -420,12 +466,9 @@ static int check_response(redis_node *rnode, struct msg *r)
             cunit->key_type = REDIS_SET;
 
             arg = array_push(&args);
-            *arg = sdsnew("sort");
+            *arg = sdsnew("smembers");
             arg = array_push(&args);
             *arg = sdsdup(cunit->key);
-            arg = array_push(&args);
-            *arg = sdsnew("ALPHA");
-            //ret = redis_msg_append_command_full(msg, "smembers", cunit->key, NULL);
             ret = redis_msg_append_command_full_safe(msg, &args);
             if (ret != RMT_OK) {
                 log_error("ERROR: msg append multi bulk len failed.");
@@ -504,7 +547,7 @@ static int check_response(redis_node *rnode, struct msg *r)
                 goto error;
             }
         } else if (cunit->key_type == REDIS_LIST) {
-            
+
         } else if (cunit->key_type == REDIS_SET) {
             
         } else if (cunit->key_type == REDIS_ZSET) {
@@ -526,7 +569,152 @@ static int check_response(redis_node *rnode, struct msg *r)
         }
     
         if (cunit->result1 != NULL && cunit->result2 != NULL) {
-            if (msg_data_compare(cunit->result1, cunit->result2) != 0) {
+            if (cunit->key_type == REDIS_SET) {
+                uint32_t j;
+
+                bulks1 = get_multi_bulk_array_from_mbuf_list(cunit->result1->data);
+                bulks2 = get_multi_bulk_array_from_mbuf_list(cunit->result2->data);
+                if (bulks1 == NULL || bulks2 == NULL) {
+                    log_error("ERROR: get multi bulk array from mbufs failed");
+                    goto error;
+                }
+
+                if (array_n(bulks1) != array_n(bulks2)) {
+                    chdata->err_inconsistent_value_keys_count ++;
+                    rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
+                    goto error;
+                }
+                
+                array_sort(bulks1, string_binary_cmp);
+                array_sort(bulks2, string_binary_cmp);
+
+                for (j = 0; j < array_n(bulks1); j ++) {
+                    bulk1 = array_get(bulks1, j);
+                    bulk2 = array_get(bulks2, j);
+                    if (string_binary_cmp(bulk1, bulk2) != 0) {
+                        chdata->err_inconsistent_value_keys_count ++;
+                        rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
+                        goto error;
+                    }
+                }
+            } else if (cunit->key_type == REDIS_HASH) {
+                struct array *hash_datas1, *hash_datas2;
+                uint32_t hash_len;
+                uint32_t j;
+                struct hash_data *hd1, *hd2;
+
+                hash_datas1 = hash_datas2 = NULL;
+            
+                bulks1 = get_multi_bulk_array_from_mbuf_list(cunit->result1->data);
+                bulks2 = get_multi_bulk_array_from_mbuf_list(cunit->result2->data);
+                if (bulks1 == NULL || bulks2 == NULL) {
+                    log_error("ERROR: get multi bulk array from mbufs failed");
+                    goto error;
+                }
+
+                if (array_n(bulks1)%2 != 0 || array_n(bulks2)%2 != 0) {
+                    log_error("ERROR: bad hash value");
+                    goto error;
+                }
+
+                if (array_n(bulks1) != array_n(bulks2)) {
+                    chdata->err_inconsistent_value_keys_count ++;
+                    rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
+                    goto error;
+                }
+
+                hash_len = array_n(bulks1)/2;
+                hash_datas1 = array_create(hash_len, sizeof(struct hash_data));
+                hash_datas2 = array_create(hash_len, sizeof(struct hash_data));
+
+                for (j = 0; j < hash_len; j ++) {
+                    hd1 = array_push(hash_datas1);
+                    hd2 = array_push(hash_datas2);
+
+                    bulk1 = array_pop(bulks1);
+                    bulk2 = array_pop(bulks1);
+                    hd1->field = *bulk1;
+                    hd1->value = *bulk2;
+
+                    bulk1 = array_pop(bulks2);
+                    bulk2 = array_pop(bulks2);
+                    hd2->field = *bulk1;
+                    hd2->value = *bulk2;
+                }
+
+                array_sort(hash_datas1, hash_data_field_cmp);
+                array_sort(hash_datas2, hash_data_field_cmp);
+
+                for (j = 0; j < array_n(bulks1); j ++) {
+                    hd1 = array_get(hash_datas1, j);
+                    hd2 = array_get(hash_datas2, j);
+                    if (string_binary_cmp(hd1->field, hd2->field) != 0) {
+                        chdata->err_inconsistent_value_keys_count ++;
+                        rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
+                        if (hash_datas1 != NULL) {
+                            while (array_n(hash_datas1) > 0) {
+                                hd1 = array_pop(hash_datas1);
+                                sdsfree(hd1->field);
+                                sdsfree(hd1->value);
+                            }
+                            array_destroy(hash_datas1);
+                            hash_datas1 = NULL;
+                        }
+                        if (hash_datas2 != NULL) {
+                            while (array_n(hash_datas2) > 0) {
+                                hd2 = array_pop(hash_datas2);
+                                sdsfree(hd2->field);
+                                sdsfree(hd2->value);
+                            }
+                            array_destroy(hash_datas2);
+                            hash_datas2 = NULL;
+                        }
+                        goto error;
+                    }
+                    if (string_binary_cmp(hd1->value, hd2->value) != 0) {
+                        chdata->err_inconsistent_value_keys_count ++;
+                        rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
+                        if (hash_datas1 != NULL) {
+                            while (array_n(hash_datas1) > 0) {
+                                hd1 = array_pop(hash_datas1);
+                                sdsfree(hd1->field);
+                                sdsfree(hd1->value);
+                            }
+                            array_destroy(hash_datas1);
+                            hash_datas1 = NULL;
+                        }
+                        if (hash_datas2 != NULL) {
+                            while (array_n(hash_datas2) > 0) {
+                                hd2 = array_pop(hash_datas2);
+                                sdsfree(hd2->field);
+                                sdsfree(hd2->value);
+                            }
+                            array_destroy(hash_datas2);
+                            hash_datas2 = NULL;
+                        }
+                        goto error;
+                    }
+                }
+
+                if (hash_datas1 != NULL) {
+                    while (array_n(hash_datas1) > 0) {
+                        hd1 = array_pop(hash_datas1);
+                        sdsfree(hd1->field);
+                        sdsfree(hd1->value);
+                    }
+                    array_destroy(hash_datas1);
+                    hash_datas1 = NULL;
+                }
+                if (hash_datas2 != NULL) {
+                    while (array_n(hash_datas2) > 0) {
+                        hd2 = array_pop(hash_datas2);
+                        sdsfree(hd2->field);
+                        sdsfree(hd2->value);
+                    }
+                    array_destroy(hash_datas2);
+                    hash_datas2 = NULL;
+                }
+            } else if (msg_data_compare(cunit->result1, cunit->result2) != 0) {
                 chdata->err_inconsistent_value_keys_count ++;
                 rmt_safe_snprintf(extra_err, 50, ", value is inconsistent\0");
                 goto error;
@@ -538,6 +726,23 @@ static int check_response(redis_node *rnode, struct msg *r)
             msg_put(cunit->result2);
             msg_free(cunit->result2);
             cunit->result2 = NULL;
+
+            if (bulks1 != NULL) {
+                while (array_n(bulks1) > 0) {
+                    bulk1 = array_pop(bulks1);
+                    sdsfree(*bulk1);
+                }
+                array_destroy(bulks1);
+                bulks1 = NULL;
+            }
+            if (bulks2 != NULL) {
+                while (array_n(bulks2) > 0) {
+                    bulk2 = array_pop(bulks2);
+                    sdsfree(*bulk2);
+                }
+                array_destroy(bulks2);
+                bulks2 = NULL;
+            }
 
             msg = msg_get(r->mb, 1, REDIS_DATA_TYPE_CMD);
             if (msg == NULL) {
@@ -666,6 +871,23 @@ error:
         sdsfree(*arg);
     }
     array_deinit(&args);
+
+    if (bulks1 != NULL) {
+        while (array_n(bulks1) > 0) {
+            bulk1 = array_pop(bulks1);
+            sdsfree(*bulk1);
+        }
+        array_destroy(bulks1);
+        bulks1 = NULL;
+    }
+    if (bulks2 != NULL) {
+        while (array_n(bulks2) > 0) {
+            bulk2 = array_pop(bulks2);
+            sdsfree(*bulk2);
+        }
+        array_destroy(bulks2);
+        bulks2 = NULL;
+    }
     
     return RMT_OK;
 }
