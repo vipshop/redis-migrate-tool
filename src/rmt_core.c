@@ -32,6 +32,8 @@ int thread_data_init(thread_data *tdata)
     tdata->finished_keys_count = 0;
     tdata->correct_keys_count = 0;
 
+    tdata->cronloops = 0;
+
     tdata->data = NULL;
     
     tdata->stat_total_msgs_recv = 0;
@@ -145,6 +147,8 @@ static int write_thread_data_init(rmtContext *ctx, thread_data *wdata)
 
     thread_data_init(wdata);
 
+    wdata->ctx = ctx;
+
 	wdata->loop = aeCreateEventLoop(1000);
     if (wdata->loop == NULL) {
     	log_error("ERROR:  create event loop failed");
@@ -188,12 +192,141 @@ static void write_thread_data_deinit(thread_data *wdata)
 	thread_data_deinit(wdata);
 }
 
+static int read_thread_stop(thread_data *rdata)
+{
+    redis_node *srnode;
+    listNode *ln;
+    redis_repl *rr;
+    redis_rdb *rdb;
+    tcp_context *tc;
+
+    ln = listFirst(rdata->nodes);
+    while (ln != NULL) {
+        srnode = listNodeValue(ln);
+        rr = srnode->rr;
+        rdb = srnode->rdb;
+        tc = srnode->tc;
+        if (rr->repl_state != REDIS_REPL_NONE && 
+            rr->repl_state != REDIS_REPL_CONNECT) {
+            if (rr->repl_state == REDIS_REPL_TRANSFER) {
+                //rmtReceiveRdbAbort(srnode);
+                aeDeleteFileEvent(rdata->loop, tc->sd, AE_READABLE);
+                rmt_tcp_context_close_sd(tc);
+                redis_delete_rdb_file(rdb, 1);
+            } else {
+                //rmtRedisSlaveOffline(srnode);
+                aeDeleteFileEvent(rdata->loop,tc->sd,AE_READABLE|AE_WRITABLE);
+                rmt_tcp_context_close_sd(tc);
+            }
+        }
+        ln = ln->next;
+    }
+
+    aeStop(rdata->loop);
+
+    return RMT_OK;
+}
+
+static int write_thread_stop(thread_data *wdata)
+{
+    redis_node *srnode;
+    listNode *ln;
+    dictIterator *di;
+    dictEntry *de;
+
+    ln = listFirst(wdata->nodes);
+    while (ln != NULL) {
+        srnode = listNodeValue(ln);
+        if (mttlist_length(srnode->cmd_data) > 0) {
+            return RMT_AGAIN;
+        }
+        ln = ln->next;
+    }
+
+    di = dictGetIterator(wdata->trgroup->nodes);
+    while ((de = dictNext(di))!= NULL) {
+        srnode = dictGetVal(de);
+
+        if (listLength(srnode->send_data) > 0) {
+            dictReleaseIterator(di);
+            return RMT_AGAIN;
+        }
+
+        if (listLength(srnode->sent_data) > 0) {
+            dictReleaseIterator(di);
+            return RMT_AGAIN;
+        }
+
+        if (srnode->msg_rcv != NULL) {
+            dictReleaseIterator(di);
+            return RMT_AGAIN;
+        }
+    }
+    dictReleaseIterator(di);
+
+    aeStop(wdata->loop);
+
+    return RMT_OK;
+}
+
+int get_notice_flag(rmtContext *ctx)
+{
+    int flags;
+    
+    pthread_rwlock_rdlock(&ctx->rwl_notice);
+    flags = ctx->flags_notice;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+
+    return flags;
+}
+
+void set_notice_flag(rmtContext *ctx, int flags)
+{    
+    pthread_rwlock_wrlock(&ctx->rwl_notice);
+    ctx->flags_notice |= flags;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+}
+
+void reset_notice_flag(rmtContext *ctx)
+{    
+    pthread_rwlock_wrlock(&ctx->rwl_notice);
+    ctx->flags_notice = RMT_NOTICE_FLAG_NULL;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+}
+
+int get_finish_count_after_notice(rmtContext *ctx)
+{
+    int count;
+    
+    pthread_rwlock_rdlock(&ctx->rwl_notice);
+    count = ctx->finish_count_after_notice;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+
+    return count;
+}
+
+void add_finish_count_after_notice(rmtContext *ctx)
+{    
+    pthread_rwlock_wrlock(&ctx->rwl_notice);
+    ctx->finish_count_after_notice ++;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+}
+
+void reset_finish_count_after_notice(rmtContext *ctx)
+{    
+    pthread_rwlock_wrlock(&ctx->rwl_notice);
+    ctx->finish_count_after_notice = 0;
+    pthread_rwlock_unlock(&ctx->rwl_notice);
+}
+
 static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
 {
     thread_data *rdata = clientData;
+    rmtContext *ctx = rdata->ctx;
     listIter *li;
     listNode *ln;
     redis_node *srnode;
+    int flags_notice;
 
     RMT_NOTUSED(eventLoop);
     RMT_NOTUSED(id);
@@ -201,18 +334,31 @@ static int readThreadCron(struct aeEventLoop *eventLoop, long long id, void *cli
 
     log_debug(LOG_VERB, "writeThreadCron() %lld", id);
 
+    /* handle the main thread flags */
+    flags_notice = get_notice_flag(ctx);
+    if (flags_notice != RMT_NOTICE_FLAG_NULL) {
+        if (flags_notice & RMT_NOTICE_FLAG_SHUTDOWN) {
+            read_thread_stop(rdata);
+            add_finish_count_after_notice(ctx);
+            return 1000/ctx->hz;
+        }
+    }
+
     /* Update the time */
     rdata->unixtime = rmt_msec_now();
 
-    //Check error connection
-    li = listGetIterator(rdata->nodes, AL_START_HEAD);
-    while ((ln = listNext(li)) != NULL) {
-        srnode = listNodeValue(ln);
-        redisSlaveReplCorn(srnode);
+    /* Check error connection */
+    run_with_period(1000, rdata->cronloops, ctx->hz) {
+        li = listGetIterator(rdata->nodes, AL_START_HEAD);
+        while ((ln = listNext(li)) != NULL) {
+            srnode = listNodeValue(ln);
+            redisSlaveReplCorn(srnode);
+        }
+        listReleaseIterator(li);
     }
-    listReleaseIterator(li);
     
-    return 1000;
+    rdata->cronloops ++;
+    return 1000/ctx->hz;
 }
 
 static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
@@ -225,6 +371,7 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
     dictEntry *de;
     redis_node *trnode;
     tcp_context *tc;
+    int flags_notice;
 
     RMT_NOTUSED(eventLoop);
     RMT_NOTUSED(id);
@@ -232,47 +379,62 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
 
     log_debug(LOG_VERB, "writeThreadCron() %lld", id);
 
+    /* handle the main thread flags */
+    flags_notice = get_notice_flag(ctx);
+    if (flags_notice != RMT_NOTICE_FLAG_NULL) {
+        if (flags_notice & RMT_NOTICE_FLAG_SHUTDOWN) {
+            ret = write_thread_stop(wdata);
+            if (ret == RMT_OK) {
+                add_finish_count_after_notice(ctx);
+                return 1000/ctx->hz;
+            }
+        }
+    }
+
     /* Update the time */
     wdata->unixtime = rmt_msec_now();
 
-    //Check error connection
-    di = dictGetSafeIterator(trgroup->nodes);
-    while ((de = dictNext(di)) != NULL) {
-        trnode = dictGetVal(de);
-        tc = trnode->tc;
-        if (tc->sd <= 0 && listLength(trnode->send_data) > 0) {
-            ret = rmt_tcp_context_reconnect(tc);
-            if (ret != RMT_OK) {
-                log_error("ERROR: reconnect to %s failed", trnode->addr);
-                continue;
-            }
+    run_with_period(1000, wdata->cronloops, ctx->hz) {
+        /* Check error connection */
+        di = dictGetSafeIterator(trgroup->nodes);
+        while ((de = dictNext(di)) != NULL) {
+            trnode = dictGetVal(de);
+            tc = trnode->tc;
+            if (tc->sd <= 0 && listLength(trnode->send_data) > 0) {
+                ret = rmt_tcp_context_reconnect(tc);
+                if (ret != RMT_OK) {
+                    log_error("ERROR: reconnect to %s failed", trnode->addr);
+                    continue;
+                }
 
-            if (ctx->noreply == 0) {
+                if (ctx->noreply == 0) {
+                    ret = aeCreateFileEvent(wdata->loop, tc->sd, 
+                        AE_READABLE, recv_data_from_target, trnode);
+                    if (ret != AE_OK) {
+                        log_error("ERROR: send_data event create %ld failed: %s",
+                            wdata->thread_id, strerror(errno));
+                        continue;
+                    }
+
+                    log_debug(LOG_NOTICE, "node[%s] create read event for thread %ld", 
+                        trnode->addr, wdata->thread_id);
+                }
+
                 ret = aeCreateFileEvent(wdata->loop, tc->sd, 
-                    AE_READABLE, recv_data_from_target, trnode);
-                if (ret != AE_OK) {
+                    AE_WRITABLE, send_data_to_target, trnode);
+                if(ret != AE_OK)
+                {
                     log_error("ERROR: send_data event create %ld failed: %s",
                         wdata->thread_id, strerror(errno));
                     continue;
                 }
-
-                log_debug(LOG_NOTICE, "node[%s] create read event for thread %ld", 
-                    trnode->addr, wdata->thread_id);
-            }
-
-            ret = aeCreateFileEvent(wdata->loop, tc->sd, 
-                AE_WRITABLE, send_data_to_target, trnode);
-            if(ret != AE_OK)
-            {
-                log_error("ERROR: send_data event create %ld failed: %s",
-                    wdata->thread_id, strerror(errno));
-                continue;
             }
         }
+        dictReleaseIterator(di);
     }
-    dictReleaseIterator(di);
-    
-    return 1000;
+
+    wdata->cronloops ++;
+    return 1000/ctx->hz;
 }
 
 static void *event_run(void *args)
@@ -447,7 +609,7 @@ static int read_write_threads_create(rmtContext *ctx,
     		}
 
             rdata->id = i;
-
+            rdata->ctx = ctx;
             rdata->nodes_count = listLength(instances);
             lnode = instances->head;
             while (lnode) {
@@ -535,7 +697,7 @@ static int read_write_threads_create(rmtContext *ctx,
         		}
 
                 rdata->id = i;
-                
+                rdata->ctx = ctx;
                 rdata->nodes_count = listLength(instances);
                 lnode = instances->head;
                 while (lnode) {
@@ -680,8 +842,8 @@ error:
 
 static void read_threads_destroy(struct array *read_datas);
 
-static struct array *read_threads_create_unsafe(int read_threads_count, 
-    int node_count, redis_group *srgroup)
+static struct array *read_threads_create_unsafe(rmtContext *ctx, 
+    int read_threads_count, int node_count, redis_group *srgroup)
 {
     int ret;
     int i, k;
@@ -730,7 +892,7 @@ static struct array *read_threads_create_unsafe(int read_threads_count,
 		}
 
         rdata->id = i;
-
+        rdata->ctx = ctx;
         rdata->nodes_count = step;
 		for(k = begin; k < begin + step; k ++)
 		{   
@@ -2129,7 +2291,7 @@ void redis_migrate(rmtContext *ctx, int type)
             write_threads_count = MIN(node_count,thread_count);
         }
 
-        read_datas = read_threads_create_unsafe(read_threads_count, 
+        read_datas = read_threads_create_unsafe(ctx, read_threads_count, 
             node_count, srgroup);
         if(read_datas == NULL && read_threads_count > 0){
             log_error("Error: Read threads create failed");
@@ -2174,6 +2336,7 @@ void redis_migrate(rmtContext *ctx, int type)
         read_threads_count+write_threads_count);
     log_notice("Read threads count in fact: %d", read_threads_count);
     log_notice("Write threads count in fact: %d", write_threads_count);
+    ctx->thread_count = read_threads_count + write_threads_count;
 
     //Check the read threads
     threads_hold_nodes_count = 0;

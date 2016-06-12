@@ -136,6 +136,11 @@ struct redis_group;
 /* Anti-warning macro... */
 #define RMT_NOTUSED(V) ((void) V)
 
+#define RMT_NOTICE_FLAG_NULL        0
+#define RMT_NOTICE_FLAG_SHUTDOWN    (1<<0)
+
+#define run_with_period(_ms_, _cronloops, _hz) if ((_ms_ <= 1000/_hz) || !(_cronloops%((_ms_)/(1000/_hz))))
+
 struct instance {
     int             log_level;                   /* log level */
     char            *log_filename;               /* log filename */
@@ -175,6 +180,8 @@ typedef struct rmtContext {
     char            *target_addr;       /* target redis address */
     group_type_t    source_type;        /* target redis type */
     group_type_t    target_type;        /* target redis type */
+
+    int hz;     /* cron() calls frequency in hertz */
     
     sds cmd;    /* command string */
 
@@ -209,6 +216,10 @@ typedef struct rmtContext {
     mbuf_base *mb;
 
     sds filter;
+
+    pthread_rwlock_t rwl_notice;        /* read write lock */
+    int              flags_notice;      /* used to notice the threads */
+    int              finish_count_after_notice; /* finished thread count after the main thread noticed */
 }rmtContext;
 
 typedef struct thread_data{
@@ -229,6 +240,8 @@ typedef struct thread_data{
     long long sent_keys_count;
     long long finished_keys_count;
     long long correct_keys_count;
+
+    int cronloops;          /* Number of times the cron function run */
     
     void *data;             /* data for this thread */
 
@@ -247,6 +260,14 @@ void destroy_context(rmtContext *rmt_ctx);
 
 int thread_data_init(thread_data *tdata);
 void thread_data_deinit(thread_data *tdata);
+
+int get_notice_flag(rmtContext *ctx);
+void set_notice_flag(rmtContext *ctx, int flags);
+void reset_notice_flag(rmtContext *ctx);
+int get_finish_count_after_notice(rmtContext *ctx);
+void add_finish_count_after_notice(rmtContext *ctx);
+void reset_finish_count_after_notice(rmtContext *ctx);
+
 
 unsigned int dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);

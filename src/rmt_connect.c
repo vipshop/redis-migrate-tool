@@ -352,6 +352,73 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
         sdsfree(str);
         break;
     }
+    case MSG_REQ_REDIS_SHUTDOWN:
+    {
+        long long starttime, now;
+        long long limittime = 10000;    /* wait for 10 second default */
+        sds arg;
+
+        log_notice("Shutdown...");
+        
+        if (array_n(req->keys) > 1) {
+            str = sdsnew("-ERR syntax error\r\n");
+            ret = msg_append(msg, str, (uint32_t)sdslen(str));
+            sdsfree(str);
+            break;
+        } else if (array_n(req->keys) == 1) {
+            struct keypos *key;
+            key = array_get(req->keys, 0);
+            arg = sdsnewlen(key->start, (int)(key->end - key->start));
+            if (sdslen(arg) == 0) {
+                str = sdsnew("-ERR syntax error\r\n");
+                ret = msg_append(msg, str, (uint32_t)sdslen(str));
+                sdsfree(str);
+                sdsfree(arg);
+                break;
+            } else if (!strcasecmp(arg, "asap")) {
+                limittime = 0;
+            } else if (sdsIsNum(arg)) {
+                limittime = rmt_atoll(arg, sdslen(arg));
+                limittime = limittime*1000;
+            } else {
+                str = sdsnew("-ERR syntax error\r\n");
+                ret = msg_append(msg, str, (uint32_t)sdslen(str));
+                sdsfree(str);
+                sdsfree(arg);
+                break;
+            }
+
+            sdsfree(arg);
+            
+            if (limittime == 0) {
+                rmt_write(conn->sd, "+OK\r\n", 5);
+                if (ctx->proxy != NULL) {
+                    ctx->proxy->close(ctx, ctx->proxy);
+                    ctx->proxy = NULL;
+                }
+                exit(0);
+            }
+        }
+
+        set_notice_flag(ctx, RMT_NOTICE_FLAG_SHUTDOWN);
+        starttime = rmt_msec_now();
+        while (get_finish_count_after_notice(ctx) < ctx->thread_count) {
+            now = rmt_msec_now();
+            if ((now - starttime) > limittime) {
+                rmt_write(conn->sd, "+OK\r\n", 5);
+                if (ctx->proxy != NULL) {
+                    ctx->proxy->close(ctx, ctx->proxy);
+                    ctx->proxy = NULL;
+                }
+                exit(0);
+            }
+            usleep(10000);
+        }
+        aeStop(ctx->loop);
+        rmt_write(conn->sd, "+OK\r\n", 5);
+        return RMT_OK;
+        break;
+    }
     default:
         str = sdsnew(ERROR_RESPONSE_NOTSUPPORT);
         ret = msg_append(msg, (uint8_t *)str, sdslen(str));

@@ -163,7 +163,6 @@ static dictType groupNodesDictType = {
 };
 
 static int rmtRedisSlaveAgainOnline(redis_node *srnode);
-static void rmtRedisSlaveOffline(redis_node *srnode);
 
 int redis_replication_init(redis_repl *rr)
 {
@@ -1375,7 +1374,7 @@ static int rmtRedisSlavePrepareOnline(redis_node *srnode)
     return RMT_OK;
 }
 
-static void rmtRedisSlaveOffline(redis_node *srnode)
+void rmtRedisSlaveOffline(redis_node *srnode)
 {
     tcp_context *tc = srnode->tc;
     thread_data *rdata = srnode->read_data;
@@ -1411,7 +1410,7 @@ static int rmtRedisSlaveAgainOnline(redis_node *srnode)
     return RMT_OK;
 }
 
-static void rmtReceiveRdbAbort(redis_node *srnode)
+void rmtReceiveRdbAbort(redis_node *srnode)
 {
     thread_data *rdata = srnode->read_data;
     tcp_context *tc = srnode->tc;
@@ -2367,6 +2366,7 @@ redis_argzormore(struct msg *r)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_INFO:
+    case MSG_REQ_REDIS_SHUTDOWN:
         return 1;
 
     default:
@@ -3003,6 +3003,12 @@ redis_parse_req(struct msg *r)
 
                 if (str8icmp(m, 'z', 'r', 'e', 'v', 'r', 'a', 'n', 'k')) {
                     r->type = MSG_REQ_REDIS_ZREVRANK;
+                    break;
+                }
+
+                if (str8icmp(m, 's', 'h', 'u', 't', 'd', 'o', 'w', 'n')) {
+                    r->type = MSG_REQ_REDIS_SHUTDOWN;
+                    r->noforward = 1;
                     break;
                 }
 

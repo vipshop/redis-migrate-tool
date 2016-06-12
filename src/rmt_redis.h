@@ -190,6 +190,9 @@ void redis_rdb_deinit(redis_rdb *rdb);
 
 int rmtConnectRedisMaster(redis_node *srnode);
 
+void rmtRedisSlaveOffline(redis_node *srnode);
+void rmtReceiveRdbAbort(redis_node *srnode);
+
 void redisSlaveReplCorn(redis_node *srnode);
 
 void redis_parse_req_rdb(struct msg *r);

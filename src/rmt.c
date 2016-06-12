@@ -22,6 +22,7 @@ init_context(struct instance *rmti)
     int cmd_parts_count = 0;
     sds *arg_addr;
     rmt_conf *cf;
+    pthread_rwlockattr_t attr;
 
     if(rmti == NULL)
     {
@@ -40,6 +41,8 @@ init_context(struct instance *rmti)
     rmt_ctx->target_addr = NULL;
     rmt_ctx->source_type = 0;
     rmt_ctx->target_type = 0;
+
+    rmt_ctx->hz = 0;
     
     rmt_ctx->cmd = NULL;
     rmt_ctx->thread_count = 0;
@@ -69,6 +72,11 @@ init_context(struct instance *rmti)
     rmt_ctx->mb = NULL;
 
     rmt_ctx->filter = NULL;
+
+    pthread_rwlockattr_init(&attr);
+    pthread_rwlock_init(&rmt_ctx->rwl_notice, &attr);
+    reset_notice_flag(rmt_ctx);
+    reset_finish_count_after_notice(rmt_ctx);
 
     commands = dictCreate(&commandTableDictType,NULL);
     if(commands == NULL)
@@ -106,6 +114,8 @@ init_context(struct instance *rmti)
     }
 
     rmt_free(cmd_parts);
+
+    rmt_ctx->hz = 10;
 
     rmt_ctx->buffer_size = rmti->buffer_size;
     rmt_ctx->thread_count = rmti->thread_count;
@@ -238,15 +248,14 @@ void destroy_context(rmtContext *rmt_ctx)
         return;
     }
     
-    while(array_n(&rmt_ctx->args) > 0)
-    {
+    while (array_n(&rmt_ctx->args) > 0) {
         sds *arg = array_pop(&rmt_ctx->args);
         sdsfree(*arg);
     }
 
     array_deinit(&rmt_ctx->args);
     
-    if(rmt_ctx->cmd != NULL){
+    if (rmt_ctx->cmd != NULL) {
         sdsfree(rmt_ctx->cmd);
     }
 
@@ -265,14 +274,8 @@ void destroy_context(rmtContext *rmt_ctx)
     while(listLength(&rmt_ctx->clients) > 0) {
         lnode = listFirst(&rmt_ctx->clients);
         c = listNodeValue(lnode);
-        listDelNode(&rmt_ctx->clients, lnode);
         c->close(rmt_ctx,c);
     }
-
-    if (rmt_ctx->loop != NULL) {
-		aeDeleteEventLoop(rmt_ctx->loop);
-		rmt_ctx->loop = NULL;
-	}
 
     if (rmt_ctx->proxy != NULL) {
         rmt_ctx->proxy->close(rmt_ctx, rmt_ctx->proxy);
@@ -281,10 +284,19 @@ void destroy_context(rmtContext *rmt_ctx)
 
     rmt_listen_deinit(&rmt_ctx->lt);
 
+    if (rmt_ctx->loop != NULL) {
+		aeDeleteEventLoop(rmt_ctx->loop);
+		rmt_ctx->loop = NULL;
+	}
+
     if (rmt_ctx->mb != NULL) {
         mbuf_base_destroy(rmt_ctx->mb);
         rmt_ctx->mb = NULL;
     }
+
+    reset_finish_count_after_notice(rmt_ctx);
+    reset_notice_flag(rmt_ctx);
+    pthread_rwlockattr_destroy(&rmt_ctx->rwl_notice);
 
     rmt_free(rmt_ctx);
 }
