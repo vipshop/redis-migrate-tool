@@ -2,9 +2,17 @@
 
 **redis-migrate-tool** is a convenient and useful tool for migrating data between [redis](https://github.com/antirez/redis). 
 
-It is based on redis replication.
+## Features
 
-In the process of migrating data, the source redis also can provide services for users. 
++ Fast.
++ Multi-Threads.
++ Based on redis replication.
++ Live migration.
++ In the process of migrating data, the source redis can also provide services for users.
++ Heterogeneous migration.
++ Twemproxy and redis cluster support.
++ When the target is twemproxy, keys are direct imported into redis behind the twemproxy.
++ Migration Status view.
 
 ## Build
 
@@ -122,7 +130,21 @@ Migrate data from twemproxy to redis cluster.
     listen: 0.0.0.0:8888
     step: 1
     mbuf_size: 512
+    
+Migrate data from a redis cluster to another redis cluster.
+
+    [source]
+    type: redis cluster
+    servers:
+     - 127.0.0.1:8379
+
+    [target]
+    type: redis cluster
+    servers:
+     - 127.0.0.1:7379
 	
+    [common]
+    listen: 0.0.0.0:8888
 	
 Load data from rdb file to redis cluster.
 
@@ -245,6 +267,27 @@ For example, you try the **info** command:
 + **total_mbufs_inqueue**: Cached commands data(not include rdb data) by mbufs input from source group.
 + **total_msgs_outqueue**: Msgs will be sent to target group and msgs had been sent to target but waiting for the response.
 
+## OTHER COMMANDS
+
+### shutdown [seconds|asap]
+
+The command behavior is the following:
+
++ Stop the replication from the source redis.
++ Try to send the cached data in redis-migrate-tool to the target redis.
++ Redis-migrate-tool stop and exit.
+
+Parameter:
+
++ **seconds**: Most of seconds that redis-migrate-tool can used to send cached data to target redis before exit. Defaults to 10 seconds.
++ **asap**: Don't care about the cached data, just exit right now.
+
+For example, you try the **shutdown** command:
+	
+    $redis-cli -h 127.0.0.1 -p 8888
+    127.0.0.1:8888> shutdown
+    OK
+
 ## CHECK THE DATA
 
 After migrate the data, you can use **redis_check** command to check data in the source group and target group.
@@ -285,11 +328,11 @@ Try the **redis_testinsert** command:
     $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert"
     Test insert job is running...
 
-    Insert string keys: 256
-    Insert list keys  : 248
-    Insert set keys   : 248
-    Insert zset keys  : 248
-    Insert hash keys  : 0
+    Insert string keys: 200
+    Insert list keys  : 200
+    Insert set keys   : 200
+    Insert zset keys  : 200
+    Insert hash keys  : 200
     Insert total keys : 1000
 
     Correct inserted keys: 1000
@@ -300,11 +343,11 @@ If you want insert more keys, try the follow:
     $src/redis-migrate-tool -c rmt.conf -o log -C "redis_testinsert 30000"
     Test insert job is running...
 
-    Insert string keys: 7504
-    Insert list keys  : 7504
-    Insert set keys   : 7496
-    Insert zset keys  : 7496
-    Insert hash keys  : 0
+    Insert string keys: 6000
+    Insert list keys  : 6000
+    Insert set keys   : 6000
+    Insert zset keys  : 6000
+    Insert hash keys  : 6000
     Insert total keys : 30000
 
     Correct inserted keys: 30000
