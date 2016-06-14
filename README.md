@@ -2,6 +2,8 @@
 
 **redis-migrate-tool** is a convenient and useful tool for migrating data between [redis](https://github.com/antirez/redis). 
 
+## [中文介绍](http://www.oschina.net/p/redis-migrate-tool)
+
 ## Features
 
 + Fast.
