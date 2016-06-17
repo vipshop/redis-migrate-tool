@@ -15,6 +15,7 @@
 + Twemproxy and redis cluster support.
 + When the target is twemproxy, keys are direct imported into redis behind the twemproxy.
 + Migration Status view.
++ Data Verification Mechanism.
 
 ## Build
 
@@ -47,6 +48,7 @@ Config file has three parts: source, target and common.
  + twemproxy
  + redis cluster
  + rdb file
+ + aof file
 + **servers:**: The list of redis address in the group. If type is twemproxy, this is same as the twemproxy config file. If type is rdb file, this is the file name.
 + **redis_auth**: Authenticate to the Redis server on connect. Now just for source redis group.
 + **timeout**: Timeout in milliseconds for read/write with Redis server. Now just for source redis group. Defaults to 120000.
@@ -180,6 +182,23 @@ Just save rdb file from redis cluster.
     [common]
     listen: 0.0.0.0:8888
     source_safe: true
+    
+Load data from aof file to redis cluster.
+
+    [source]
+    type: aof file
+    servers:
+     - /data/redis/appendonly1.aof
+     - /data/redis/appendonly2.aof
+	
+    [target]
+    type: redis cluster
+    servers:
+     - 127.0.0.1:7379
+	
+    [common]
+    listen: 0.0.0.0:8888
+    step: 2
 
 ## STATUS
 
@@ -217,8 +236,10 @@ For example, you try the **info** command:
     # Stats
     all_rdb_received:1
     all_rdb_parsed:1
+    all_aof_loaded:0
     rdb_received_count:32
     rdb_parsed_count:32
+    aof_loaded_count:0
     total_msgs_recv:7753587
     total_msgs_sent:7753587
     total_net_input_bytes:234636318
@@ -258,8 +279,10 @@ For example, you try the **info** command:
 
 + **all_rdb_received**: Whether all the rdb of the nodes in source group received.
 + **all_rdb_parsed**: Whether all the rdb of the nodes in source group parsed finished.
++ **all_aof_loaded**: Whether all the aof file of the nodes in source group loaded finished.
 + **rdb_received_count**: The received rdb count for the nodes in source group.
 + **rdb_parsed_count**: The parsed finished rdb count for the nodes in source group.
++ **aof_loaded_count**: The loaded finished aof file count for the nodes in source group.
 + **total_msgs_recv**: The total count of messages that had received from the source group.
 + **total_msgs_sent**: The total count of messages that had sent to the target group and received response from target group.
 + **total_net_input_bytes**: The total count of input bytes that had received from the source group.

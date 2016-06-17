@@ -586,7 +586,17 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
         case GROUP_TYPE_RDBFILE:
             ret = redis_rdb_file_init_from_conf(rgroup, cp);
             if (ret != RMT_OK) {
-                log_error("ERROR: Redis cluster init failed");
+                log_error("ERROR: Rdb file init failed");
+                goto error;
+            }
+
+            rgroup->get_backend_idx = NULL;
+            rgroup->get_backend_node = NULL;
+            break;
+        case GROUP_TYPE_AOFFILE:
+            ret = redis_aof_file_init_from_conf(rgroup, cp);
+            if (ret != RMT_OK) {
+                log_error("ERROR: Aof file init failed");
                 goto error;
             }
 
@@ -1455,12 +1465,6 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
     
     ASSERT(el == rdata->loop);
     ASSERT(fd == srnode->tc->sd);
-
-    /* Static vars used to hold the EOF mark, and the last bytes received
-     * form the server: when they match, we reached the end of the transfer. */
-    //static char eofmark[REDIS_RUN_ID_SIZE];
-    //static char lastbytes[REDIS_RUN_ID_SIZE];
-    //static int usemark = 0;
 
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
@@ -6448,6 +6452,78 @@ void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask)
 }
 /* ======================== Redis RDB END ========================== */
 
+/* ======================== Redis AOF ========================== */
+
+int redis_load_aof_file(redis_node *srnode, char *aof_file)
+{
+    int ret;
+    rmtContext *ctx = srnode->ctx;
+    redis_group *srgroup = srnode->owner;
+    thread_data *rdata = srnode->read_data;
+    int fd = -1;
+    size_t len;
+    ssize_t nread;
+
+    fd = open(aof_file, O_RDONLY);
+    if (fd < 0) {
+        log_error("ERROR: open %s failed: %s", 
+            aof_file, strerror(errno));
+        return RMT_ERROR;
+    }    
+    
+    while (1) {
+        if (srnode->mbuf_in == NULL) {
+            srnode->mbuf_in = mbuf_get(srgroup->mb);
+            if (srnode->mbuf_in == NULL) {
+                log_error("ERROR: Mbuf get failed: Out of memory");
+                return;
+            }
+        } else if(mbuf_size(srnode->mbuf_in) == 0) {
+            mttlist_push(srnode->cmd_data, srnode->mbuf_in);
+            srnode->mbuf_in = NULL;
+            notice_write_thread(srnode);
+
+            srnode->mbuf_in = mbuf_get(srgroup->mb);
+            if (srnode->mbuf_in == NULL) {
+                log_error("ERROR: Mbuf get failed: Out of memory");
+                return;
+            }
+        }
+        
+        len = mbuf_size(srnode->mbuf_in);
+        nread = read(fd, srnode->mbuf_in->last, len);
+        if (nread > 0) {
+            srnode->mbuf_in->last += nread;
+        }
+        
+        if (nread == 0 || nread < len) {
+            rdata->stat_aof_loaded_count ++;
+            
+            if (mbuf_length(srnode->mbuf_in) > 0) {
+                mttlist_push(srnode->cmd_data, srnode->mbuf_in);
+                srnode->mbuf_in = NULL;
+                notice_write_thread(srnode);
+            }
+
+            log_notice("Aof file %s load finished", aof_file);
+            break;
+        }
+
+        if (nread < 0) {
+            log_error("ERROR: read data from %s failed: %s", 
+                aof_file, strerror(errno));
+            close(fd);
+            return RMT_ERROR;
+        }
+
+        usleep(100/ctx->step);
+    }
+
+    close(fd);
+    return RMT_OK;
+}
+
+/* ======================== Redis AOF END ========================== */
 
 /* ========================== Redis Cluster ============================ */
 
@@ -7634,6 +7710,34 @@ int redis_rdb_file_init_from_conf(redis_group *rgroup, conf_pool *cp)
 }
 
 /* ======================== Redis Rdb file END ========================== */
+
+/* ======================== Redis Aof file ========================== */
+
+int redis_aof_file_init_from_conf(redis_group *rgroup, conf_pool *cp)
+{
+    int ret;
+    uint32_t i;
+    sds *str;
+    
+    if(rgroup == NULL || cp == NULL || 
+        cp->servers == NULL){
+        return RMT_ERROR;
+    }
+    
+    for(i = 0; i < array_n(cp->servers); i ++){
+        str = array_get(cp->servers, i);
+        if(redis_group_add_node(rgroup, *str, *str) == NULL)
+        {
+            log_error("ERROR: Redis group add node[%s] failed", 
+                *str);
+            return RMT_ERROR;
+        }
+    }
+    
+    return RMT_OK;
+}
+
+/* ======================== Redis Aof file END ========================== */
 
 static int
 get_char_from_mbuf_list(list *mbufs, listNode **node, uint8_t **pos, uint8_t *ch)

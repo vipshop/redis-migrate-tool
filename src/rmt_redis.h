@@ -217,12 +217,15 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time);
 int redis_parse_rdb_time(aeEventLoop *el, long long id, void *privdata);
 void redis_parse_rdb(aeEventLoop *el, int fd, void *privdata, int mask);
 
+int redis_load_aof_file(redis_node *srnode, char *aof_file);
+
 int redis_cluster_init_from_addrs(redis_group *rgroup, const char *addrs);
 
 int redis_cluster_init_from_conf(redis_group *rgroup, conf_pool *cp);
 int redis_single_init_from_conf(redis_group *rgroup, conf_pool *cp);
 int redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp);
 int redis_rdb_file_init_from_conf(redis_group *rgroup, conf_pool *cp);
+int redis_aof_file_init_from_conf(redis_group *rgroup, conf_pool *cp);
 
 redis_node *redis_group_add_node(redis_group *rgroup, const char *name, const char *addr);
 

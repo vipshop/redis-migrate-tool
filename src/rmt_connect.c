@@ -56,6 +56,43 @@ static int rdb_received_finished_count(rmtContext *ctx)
     return count;
 }
 
+static int all_aof_loaded_finished(rmtContext *ctx)
+{
+    uint32_t i;
+    int finished = 1;
+    struct array *rdatas = ctx->rdatas;
+    thread_data *rdata;
+
+    if (rdatas == NULL) return 0;
+
+    for (i = 0; i < array_n(rdatas); i++) {
+        rdata = array_get(rdatas, i);
+        if (rdata->stat_aof_loaded_count < rdata->nodes_count) {
+            finished = 0;
+            break;
+        }
+    }
+
+    return finished;
+}
+
+static int aof_loaded_finished_count(rmtContext *ctx)
+{
+    uint32_t i;
+    int count = 0;
+    struct array *rdatas = ctx->rdatas;
+    thread_data *rdata;
+
+    if (rdatas == NULL) return 0;
+
+    for (i = 0; i < array_n(rdatas); i++) {
+        rdata = array_get(rdatas, i);
+        count += rdata->stat_aof_loaded_count;
+    }
+
+    return count;
+}
+
 static int all_rdb_parse_finished(rmtContext *ctx)
 {
     uint32_t i;
@@ -285,8 +322,10 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             "# Stats\r\n"
             "all_rdb_received:%d\r\n"
             "all_rdb_parsed:%d\r\n"
+            "all_aof_loaded:%d\r\n"
             "rdb_received_count:%d\r\n"
             "rdb_parsed_count:%d\r\n"
+            "aof_loaded_count:%d\r\n"
             "total_msgs_recv:%"PRIu64"\r\n"
             "total_msgs_sent:%"PRIu64"\r\n"
             "total_net_input_bytes:%"PRIu64"\r\n"
@@ -297,8 +336,10 @@ static sds gen_migrate_info_string(rmtContext *ctx, sds part)
             "total_msgs_outqueue:%"PRIu64"\r\n",
             all_rdb_received_finished(ctx),
             all_rdb_parse_finished(ctx),
+            all_aof_loaded_finished(ctx),
             rdb_received_finished_count(ctx),
             rdb_parse_finished_count(ctx),
+            aof_loaded_finished_count(ctx),
             total_msgs_received(ctx),
             total_msgs_sent(ctx),
             total_input_bytes,

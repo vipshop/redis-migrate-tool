@@ -19,6 +19,7 @@ typedef struct conf_option {
     ACTION( GROUP_TYPE_TWEM,            twemproxy     ) \
     ACTION( GROUP_TYPE_RCLUSTER,        redis cluster ) \
     ACTION( GROUP_TYPE_RDBFILE,         rdb file      ) \
+    ACTION( GROUP_TYPE_AOFFILE,         aof file      ) \
 
 #define DEFINE_ACTION(_group, _name) _group,
 typedef enum group_type {

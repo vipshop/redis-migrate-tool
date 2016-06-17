@@ -42,6 +42,7 @@ int thread_data_init(thread_data *tdata)
     tdata->stat_total_net_output_bytes = 0;
     tdata->stat_rdb_received_count = 0;
     tdata->stat_rdb_parsed_count = 0;
+    tdata->stat_aof_loaded_count = 0;
     tdata->stat_mbufs_inqueue = 0;    
     tdata->stat_msgs_outqueue = 0;
 
@@ -1111,6 +1112,28 @@ static void *read_thread_run_old(void *args)
     return 0;
 }
 
+static void begin_load_aof_file(aeEventLoop *el, int fd, void *privdata, int mask)
+{
+    char c[1];
+    redis_node *srnode = privdata;
+    thread_data *rdata = srnode->read_data;
+    
+    RMT_NOTUSED(el);
+    RMT_NOTUSED(fd);
+    RMT_NOTUSED(privdata);
+    RMT_NOTUSED(mask);
+
+    ASSERT(rdata->loop == el);
+    ASSERT(srnode->sockpairfds[0] == fd);
+
+    rmt_read(srnode->sockpairfds[0], c , 1);
+    ASSERT(c[0] == ' ');
+
+    aeDeleteFileEvent(el, fd, mask);
+    
+    redis_load_aof_file(srnode, srnode->addr);
+}
+
 static void begin_replication(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     char c[1];
@@ -1137,6 +1160,7 @@ static void *read_thread_run(void *args)
 {
     int ret;
     thread_data *rdata = args;
+    rmtContext *ctx = rdata->ctx;
     list *nodes = rdata->nodes;  //type : source redis_node
     redis_node *srnode;
     listNode *lnode;
@@ -1145,16 +1169,31 @@ static void *read_thread_run(void *args)
     it = listGetIterator(nodes, AL_START_HEAD);
     while((lnode = listNext(it)) != NULL){
     	srnode = listNodeValue(lnode);
-        ret = aeCreateFileEvent(rdata->loop, srnode->sockpairfds[0], 
-                AE_READABLE, begin_replication, srnode);
-        if(ret != AE_OK)
-        {
-            log_error("ERROR: Create readable notice event for node[%s] fd %d "
-                "to begin replication on the read thread %ld failed: %s",
-                srnode->addr, srnode->sockpairfds[0],
-                rdata->thread_id, strerror(errno));
-            listReleaseIterator(it);
-            exit(0);
+
+        if (ctx->source_type == GROUP_TYPE_AOFFILE) {
+            ret = aeCreateFileEvent(rdata->loop, srnode->sockpairfds[0], 
+                    AE_READABLE, begin_load_aof_file, srnode);
+            if(ret != AE_OK)
+            {
+                log_error("ERROR: Create readable notice event for node[%s] fd %d "
+                    "to begin load aof file on the read thread %ld failed: %s",
+                    srnode->addr, srnode->sockpairfds[0],
+                    rdata->thread_id, strerror(errno));
+                listReleaseIterator(it);
+                exit(0);
+            }
+        } else {
+            ret = aeCreateFileEvent(rdata->loop, srnode->sockpairfds[0], 
+                    AE_READABLE, begin_replication, srnode);
+            if(ret != AE_OK)
+            {
+                log_error("ERROR: Create readable notice event for node[%s] fd %d "
+                    "to begin replication on the read thread %ld failed: %s",
+                    srnode->addr, srnode->sockpairfds[0],
+                    rdata->thread_id, strerror(errno));
+                listReleaseIterator(it);
+                exit(0);
+            }
         }
     }
     
@@ -1695,6 +1734,7 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
 {
     int ret;
     redis_node *srnode = privdata;
+    rmtContext *ctx = srnode->ctx;
     thread_data *wdata = srnode->write_data;
     redis_rdb *rdb = srnode->rdb;
     
@@ -1706,10 +1746,11 @@ void parse_prepare(aeEventLoop *el, int fd, void *privdata, int mask)
     ASSERT(wdata->loop == el);
     ASSERT(srnode->sockpairfds[1] == fd);
 
-    if (rdb->type == REDIS_RDB_TYPE_FILE) {
+    if (rdb->type == REDIS_RDB_TYPE_FILE && 
+        ctx->source_type != GROUP_TYPE_AOFFILE) {
         aeDeleteFileEvent(wdata->loop, srnode->sockpairfds[1], AE_READABLE);
 
-        if (srnode->ctx->target_type == GROUP_TYPE_RDBFILE) {
+        if (ctx->target_type == GROUP_TYPE_RDBFILE) {
             if (srnode->next != NULL) {
                 rmt_write(srnode->next->sockpairfds[1], " ", 1);
             }
@@ -1778,18 +1819,19 @@ void parse_request(aeEventLoop *el, int fd, void *privdata, int mask)
 
     log_debug(LOG_DEBUG, "parse_job %s", srnode->addr);
 
-    if(rr->repl_state == REDIS_REPL_TRANSFER){
+    if (rr->repl_state == REDIS_REPL_TRANSFER) {
         data = rdb->data;
         data_type = REDIS_DATA_TYPE_RDB;
-    }else if(rr->repl_state == REDIS_REPL_CONNECTED){
-        if(!mttlist_empty(rdb->data)){
+    } else if (rr->repl_state == REDIS_REPL_CONNECTED || 
+        srgroup->kind == GROUP_TYPE_AOFFILE) {
+        if (!mttlist_empty(rdb->data)) {
             data = rdb->data;
             data_type = REDIS_DATA_TYPE_RDB;
-        }else{
+        } else {
             data = srnode->cmd_data;
             data_type = REDIS_DATA_TYPE_CMD;
         }
-    }else{
+    } else {
         log_error("ERROR: recieve data node state is error: %d", rr->repl_state);
         return;
     }
@@ -2285,7 +2327,9 @@ void redis_migrate(rmtContext *ctx, int type)
     }
 
     //Create read and write threads data
-    if(!ctx->source_safe || srgroup->kind == GROUP_TYPE_RDBFILE){        
+    if(!ctx->source_safe || 
+        srgroup->kind == GROUP_TYPE_RDBFILE ||
+        srgroup->kind == GROUP_TYPE_AOFFILE){        
         if(srgroup->kind == GROUP_TYPE_RDBFILE){
             read_threads_count = 0;
             write_threads_count = MIN(node_count,thread_count);
@@ -2304,7 +2348,7 @@ void redis_migrate(rmtContext *ctx, int type)
             log_error("Error: Write threads create failed");
             goto done;
         }
-    }else{
+    } else {
         read_datas = rmt_alloc(sizeof(struct array));
         if (read_datas == NULL) {
             log_error("Error: Out of memory");

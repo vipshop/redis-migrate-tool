@@ -792,7 +792,7 @@ conf_dump(rmt_conf *cf)
     log_debug(log_level, "  rdb_diskless: %d", cf->rdb_diskless);
     log_debug(log_level, "  source_safe: %d", cf->source_safe);
     log_debug(log_level, "  dir: %s", cf->dir);
-    log_debug(log_level, "  max_clients: %s", cf->max_clients);
+    log_debug(log_level, "  max_clients: %d", cf->max_clients);
     log_debug(log_level, "  filter: %s", cf->filter);
     log_debug(log_level, "");
 
