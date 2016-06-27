@@ -180,7 +180,8 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 		log_error("ERROR: setsockopt SO_KEEPALIVE call error(%s)", strerror(errno));
 		return RMT_ERROR;
 	}
-	
+
+#ifdef SOL_TCP
 	if(keepidle > 0)
 	{
 		len = sizeof(keepidle);
@@ -213,6 +214,7 @@ rmt_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 			return RMT_ERROR;
 		}
 	}
+#endif
 
 	return RMT_OK;
 }
