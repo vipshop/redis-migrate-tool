@@ -6476,7 +6476,7 @@ int redis_load_aof_file(redis_node *srnode, char *aof_file)
             srnode->mbuf_in = mbuf_get(srgroup->mb);
             if (srnode->mbuf_in == NULL) {
                 log_error("ERROR: Mbuf get failed: Out of memory");
-                return;
+                return RMT_ERROR;
             }
         } else if(mbuf_size(srnode->mbuf_in) == 0) {
             mttlist_push(srnode->cmd_data, srnode->mbuf_in);
@@ -6486,7 +6486,7 @@ int redis_load_aof_file(redis_node *srnode, char *aof_file)
             srnode->mbuf_in = mbuf_get(srgroup->mb);
             if (srnode->mbuf_in == NULL) {
                 log_error("ERROR: Mbuf get failed: Out of memory");
-                return;
+                return RMT_ERROR;
             }
         }
         
