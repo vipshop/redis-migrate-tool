@@ -802,15 +802,13 @@ void redis_rdb_deinit(redis_rdb *rdb)
     }
 }
 
-/* ========================== Redis Replication ============================ */
-
-/* Send a synchronous command to the master. Used to send AUTH and
- * REPLCONF commands before starting the replication with SYNC.
+/* Send a synchronous command to a redis. Used to send AUTH
+ * commands before starting the migrate.
  *
  * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
-static char *rmt_send_sync_cmd_read_line(int fd, ...) {
+char *rmt_send_sync_cmd_read_line(int fd, ...) {
     va_list ap;
     sds cmd = sdsempty();
     char *arg, buf[256];
@@ -832,7 +830,7 @@ static char *rmt_send_sync_cmd_read_line(int fd, ...) {
     /* Transfer command to the server. */
     if (rmt_sync_write(fd,cmd,(ssize_t)sdslen(cmd),1000) == -1) {
         sdsfree(cmd);
-        return sdscatprintf(sdsempty(),"-Writing to master: %s",
+        return sdscatprintf(sdsempty(),"-Writing to redis: %s",
                 strerror(errno));
     }
     sdsfree(cmd);
@@ -840,14 +838,15 @@ static char *rmt_send_sync_cmd_read_line(int fd, ...) {
     /* Read the reply from the server. */
     if (rmt_sync_readline(fd,buf,sizeof(buf),1000) == -1)
     {
-        return sdscatprintf(sdsempty(),"-Reading from master: %s",
+        return sdscatprintf(sdsempty(),"-Reading from redis: %s",
                 strerror(errno));
     }
     return sdsnew(buf);
 }
 
+/* ========================== Redis Replication ============================ */
 
-/* Send a short redis command to the master. 
+/* Send a short redis command to master. 
  */
 static int rmt_redis_send_cmd(int fd, ...) {
     va_list ap;
@@ -4314,7 +4313,10 @@ static int redis_copy_bulk(struct msg *dst, struct msg *src)
         mbuf_length(mbuf), mbuf->pos);
 
     p = mbuf->pos;
-    ASSERT(*p == '$');
+    if (*p != '$') {
+        MSG_DUMP_ALL(src,LOG_ERR,0);
+        ASSERT(*p == '$');
+    }
     p++;
 
     if (p[0] == '-' && p[1] == '1') {
@@ -4336,11 +4338,13 @@ static int redis_copy_bulk(struct msg *dst, struct msg *src)
             nnode = listNextNode(node);
             
             listDelNode(src->data, node);
+            len -= mbuf_length(mbuf);
             if (dst != NULL) {
                 listAddNodeTail(dst->data, mbuf);
                 dst->mlen += mbuf_length(mbuf);
+            } else {
+                mbuf_put(mbuf);
             }
-            len -= mbuf_length(mbuf);
 
             if (nnode == NULL) {
                 break;
@@ -4524,6 +4528,42 @@ int redis_append_bulk(struct msg *r, uint8_t *str, uint32_t str_len)
     return RMT_OK;
 }
 
+/* This function just used the last position '\n' to get a bulk */
+static void redis_erase_one_head_bulk(struct msg *msg)
+{
+    listNode *lnode, *nlnode;
+    struct mbuf *mbuf;
+
+    lnode = listFirst(msg->data);
+    mbuf = listNodeValue(lnode);
+    
+    while (lnode != NULL) {
+        while (lnode != NULL && mbuf->pos >= mbuf->last) {
+            nlnode = listNextNode(lnode);
+
+            mbuf_put(mbuf);
+            listDelNode(msg->data, lnode);
+
+            if (nlnode == NULL) return;
+            
+            lnode = nlnode;
+            mbuf = listNodeValue(lnode);
+            ASSERT(mbuf->pos == mbuf->start);
+        }
+
+        if (lnode == NULL) return;
+
+        if (*(mbuf->pos) == '\n') {
+            mbuf->pos ++;
+            msg->mlen --;
+            return;
+        }
+
+        mbuf->pos ++;
+        msg->mlen --;
+    }
+}
+
 /*
  * input a msg, return a msg chain.
  * ncontinuum is the number of backend redis/memcache server
@@ -4581,8 +4621,6 @@ static int redis_fragment_argx(redis_group *rgroup,
 {
     int ret;
     rmtContext *ctx = rgroup->ctx;
-    listNode *lnode, *nlnode;
-    struct mbuf *mbuf;
     struct msg **sub_msgs;
     uint32_t i;
 
@@ -4602,47 +4640,8 @@ static int redis_fragment_argx(redis_group *rgroup,
         return RMT_ENOMEM;
     }
 
-    lnode = listFirst(r->data);
-    mbuf = listNodeValue(lnode);
-    ASSERT(mbuf->pos == mbuf->start);
-
-    /*
-     * This code is based on the assumption that '*narg\r\n$4\r\nMGET\r\n' is located
-     * in a contiguous location.
-     * This is always true because we have capped our MBUF_MIN_SIZE at 512 and
-     * whenever we have multiple messages, we copy the tail message into a new mbuf
-     */
-    for (i = 0; i < 3; i++) {                 /* eat *narg\r\n$4\r\nMGET\r\n */
-
-        while(mbuf->pos >= mbuf->last){
-            nlnode = listNextNode(lnode);
-
-            mbuf_put(mbuf);
-            listDelNode(r->data, lnode);
-            
-            lnode = nlnode;
-            mbuf = listNodeValue(lnode);
-            ASSERT(mbuf->pos == mbuf->start);
-        }
-        
-        for (; *(mbuf->pos) != '\n';) {
-             while(mbuf->pos >= mbuf->last){
-                nlnode = listNextNode(lnode);
-
-                mbuf_put(mbuf);
-                listDelNode(r->data, lnode);
-                
-                lnode = nlnode;
-                mbuf = listNodeValue(lnode);
-                ASSERT(mbuf->pos == mbuf->start);
-            }
-            
-            mbuf->pos++;
-            r->mlen --;
-        }
-        
-        mbuf->pos++;
-        r->mlen --;
+    for (i = 0; i < 3; i++) {           /* eat *narg\r\n$4\r\nMGET\r\n */
+        redis_erase_one_head_bulk(r);
     }
 
     r->frag_id = msg_gen_frag_id();
@@ -5644,7 +5643,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
     value = NULL;
     elems = NULL;
 
-    log_debug(LOG_INFO, "rdbtype: %d", rdbtype);
+    log_debug(LOG_DEBUG, "rdbtype: %d", rdbtype);
 
     if (rdbtype == REDIS_RDB_TYPE_STRING) {
         value = redis_value_create(1);

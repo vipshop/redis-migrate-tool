@@ -32,6 +32,9 @@
 /* Flag that is set when we should set SO_REUSEADDR before calling bind() */
 #define RMT_REUSEADDR 0x8
 
+/* Flag that is set after we connected to the redis first time */
+#define RMT_RECONNECT 0x10
+
 /*
  * Wrapper to workaround well known, safe, implicit type conversion when
  * invoking system calls.

@@ -401,11 +401,27 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
         while ((de = dictNext(di)) != NULL) {
             trnode = dictGetVal(de);
             tc = trnode->tc;
-            if (tc->sd <= 0 && listLength(trnode->send_data) > 0) {
-                ret = rmt_tcp_context_reconnect(tc);
+            if (tc->sd <= 0) {
+                if (tc->flags & RMT_RECONNECT) {
+                    ret = rmt_tcp_context_reconnect(tc);
+                } else {
+                    ret = rmt_tcp_context_connect_addr(tc, trnode->addr, 
+                        (int)rmt_strlen(trnode->addr), NULL, NULL);
+                }
                 if (ret != RMT_OK) {
-                    log_error("ERROR: reconnect to %s failed", trnode->addr);
+                    log_error("ERROR: connect to %s failed", trnode->addr);
                     continue;
+                }
+
+                if (trgroup->password) {
+                    sds reply;
+                    reply = rmt_send_sync_cmd_read_line(tc->sd, "auth", trgroup->password, NULL);
+                    if (sdslen(reply) == 0 || reply[0] == '-') {
+                        log_error("ERROR: password to %s is wrong", trnode->addr);
+                        sdsfree(reply);
+                        continue;
+                    }
+                    sdsfree(reply);
                 }
 
                 if (ctx->noreply == 0) {
@@ -421,13 +437,14 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
                         trnode->addr, wdata->thread_id);
                 }
 
-                ret = aeCreateFileEvent(wdata->loop, tc->sd, 
-                    AE_WRITABLE, send_data_to_target, trnode);
-                if(ret != AE_OK)
-                {
-                    log_error("ERROR: send_data event create %ld failed: %s",
-                        wdata->thread_id, strerror(errno));
-                    continue;
+                if (listLength(trnode->send_data) > 0) {
+                    ret = aeCreateFileEvent(wdata->loop, tc->sd, 
+                        AE_WRITABLE, send_data_to_target, trnode);
+                    if (ret != AE_OK) {
+                        log_error("ERROR: send_data event create %ld failed: %s",
+                            wdata->thread_id, strerror(errno));
+                        continue;
+                    }
                 }
             }
         }
@@ -1462,6 +1479,7 @@ static void recv_data_from_target(aeEventLoop *el, int fd, void *privdata, int m
 {
     int ret;
     redis_node *trnode = privdata;
+    tcp_context *tc = trnode->tc;
     redis_group *trgroup = trnode->owner;
     mbuf_base *mb = trgroup->mb;
     struct msg *msg;
@@ -1473,6 +1491,8 @@ static void recv_data_from_target(aeEventLoop *el, int fd, void *privdata, int m
     RMT_NOTUSED(fd);
     RMT_NOTUSED(privdata);
     RMT_NOTUSED(mask);
+
+    ASSERT(fd == tc->sd);
 
 again:
     
@@ -1522,6 +1542,7 @@ again:
         log_warn("I/O error read from target server[%s]: lost connect",
             trnode->addr);
         aeDeleteFileEvent(el, fd, AE_READABLE);
+        rmt_tcp_context_close_sd(tc);
         return;
     }
     
@@ -1554,6 +1575,7 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     rmtContext *ctx = srnode->ctx;
     thread_data *wdata = srnode->write_data;
     tcp_context *tc = trnode->tc;
+    redis_group *trgroup = trnode->owner;
 
     log_debug(LOG_DEBUG, "prepare_send_msg holds %u mbufs to node[%s]", 
         listLength(msg->data), trnode->addr);
@@ -1561,12 +1583,27 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
     MSG_CHECK(ctx, msg);
     
     if (tc->sd < 0) {
-        tc->flags &= ~RMT_BLOCK;    
-        ret = rmt_tcp_context_connect_addr(tc, trnode->addr, 
-            (int)rmt_strlen(trnode->addr), NULL, NULL);
+        tc->flags &= ~RMT_BLOCK;
+        if (tc->flags & RMT_RECONNECT) {
+            ret = rmt_tcp_context_reconnect(tc);
+        } else {
+            ret = rmt_tcp_context_connect_addr(tc, trnode->addr, 
+                (int)rmt_strlen(trnode->addr), NULL, NULL);
+        }
         if (ret != RMT_OK) {
             log_error("ERROR: connect to %s failed", trnode->addr);
             return RMT_ERROR;
+        }
+
+        if (trgroup->password) {
+            sds reply;
+            reply = rmt_send_sync_cmd_read_line(tc->sd, "auth", trgroup->password, NULL);
+            if (sdslen(reply) == 0 || reply[0] == '-') {
+                log_error("ERROR: password to %s is wrong", trnode->addr);
+                sdsfree(reply);
+                return RMT_ERROR;
+            }
+            sdsfree(reply);
         }
 
         if (ctx->noreply == 0) {

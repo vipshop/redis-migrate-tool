@@ -533,7 +533,8 @@ void _msg_dump(const char *file, int line, struct msg *msg, int level, int begin
         }
         q = mbuf->last;
         len = q - p;
-        _log(file, line, 0, "mbuf [%p] with %ld bytes of data", p, len);
+        _log(file, line, 0, "mbuf [%p] with %ld bytes of data, pos %p last %p", 
+            p, len, mbuf->pos, mbuf->last);
         _log_hexdump(file, line, p, len, NULL);
     }
     listReleaseIterator(iter);

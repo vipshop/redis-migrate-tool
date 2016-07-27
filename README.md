@@ -50,7 +50,7 @@ Config file has three parts: source, target and common.
  + rdb file
  + aof file
 + **servers:**: The list of redis address in the group. If type is twemproxy, this is same as the twemproxy config file. If type is rdb file, this is the file name.
-+ **redis_auth**: Authenticate to the Redis server on connect. Now just for source redis group.
++ **redis_auth**: Authenticate to the Redis server on connect.
 + **timeout**: Timeout in milliseconds for read/write with Redis server. Now just for source redis group. Defaults to 120000.
 + **hash**: The name of the hash function. Just for type is twemproxy. Possible values are:
  + one_at_a_time

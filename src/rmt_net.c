@@ -952,6 +952,10 @@ int rmt_tcp_context_connect(tcp_context *tc, const char *host, int port,
         tc->source_addr = rmt_strdup(source_addr);
     }
 
+    if (!(tc->flags & RMT_RECONNECT)) {
+        tc->flags |= RMT_RECONNECT;
+    }
+    
     return _rmt_tcp_context_connect(tc);
 }
 
