@@ -17,6 +17,10 @@
 + Migration Status view.
 + Data Verification Mechanism.
 
+## Dependence
+
+Please install automake, libtool, autoconf and bzip2 at first.
+
 ## Build
 
 To build redis-migrate-tool:
