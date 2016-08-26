@@ -1,0 +1,14 @@
+version: '2'
+
+services:
+  source:
+    image: redis
+  target:
+    image: redis
+  migrate:
+    build: .
+    depends_on:
+      - source
+      - target
+    volumes: 
+      - ./compose:/migrate
