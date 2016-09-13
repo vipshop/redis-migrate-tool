@@ -6688,7 +6688,18 @@ static int cluster_update_route_with_nodes(
         log_error("ERROR: out of memory");
         goto error;
     }
-    
+
+    if (rgroup->password) {
+        sds reply;
+        reply = rmt_send_sync_cmd_read_line(tc->sd, "auth", rgroup->password, NULL);
+        if (sdslen(reply) == 0 || reply[0] == '-') {
+            log_error("ERROR: password to %s is wrong", node->addr);
+            sdsfree(reply);
+            return RMT_ERROR;
+        }
+        sdsfree(reply);
+    }
+
     if (rmt_sync_write(tc->sd,REDIS_COMMAND_CLUSTER_NODES,
         rmt_strlen(REDIS_COMMAND_CLUSTER_NODES),1000) == -1){
         log_error("ERROR: send to %s command %s failed", 
@@ -7052,7 +7063,12 @@ int redis_cluster_init_from_conf(redis_group *rgroup, conf_pool *cp)
         cp->servers == NULL){
         return RMT_ERROR;
     }
-    
+
+    // add auth in the conf to redis_group 
+    if (cp->redis_auth != CONF_UNSET_PTR) {
+        rgroup->password = sdsdup(cp->redis_auth);
+    }
+
     for(i = 0; i < array_n(cp->servers); i ++){
         str = array_get(cp->servers, i);
         if(redis_group_add_node(rgroup, *str, *str) == NULL)
