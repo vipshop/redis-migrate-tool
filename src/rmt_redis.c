@@ -6600,41 +6600,39 @@ static ssize_t rmt_redis_sync_read_string(int fd, char *ptr, long long timeout) 
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
     
-    if(c != '$')
-    {
+    if (c != '$') {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
-    do{
+    do {
         if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
 
-        if(isdigit(c))
-        {
+        if (isdigit(c)) {
             size = size * 10 + (ssize_t)(c - '0');
-        }
-        else if(c != CR)
-        {
+        } else if(c != CR) {
+            errno = ENOPROTOOPT;
             return -1;
         }           
-    }while(isdigit(c));
+    } while(isdigit(c));
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != LF)
-    {
+    if (c != LF) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
     if (rmt_sync_read(fd,ptr,size,timeout) == -1) return -1;
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != CR)
-    {
+    if (c != CR) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != LF)
-    {
+    if (c != LF) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
@@ -6702,15 +6700,15 @@ static int cluster_update_route_with_nodes(
 
     if (rmt_sync_write(tc->sd,REDIS_COMMAND_CLUSTER_NODES,
         rmt_strlen(REDIS_COMMAND_CLUSTER_NODES),1000) == -1){
-        log_error("ERROR: send to %s command %s failed", 
-            node->addr, REDIS_COMMAND_CLUSTER_NODES);
+        log_error("ERROR: send to %s for command '%s' failed", 
+            node->addr, "CLUSTER NODES");
         goto error;
     }
 
     /* Read the reply from the server. */
     if ((buf_len = (int)rmt_redis_sync_read_string(tc->sd,buf,1000)) == -1){
-        log_error("ERROR: read from %s command %s failed: %s", 
-            node->addr, REDIS_COMMAND_CLUSTER_NODES, strerror(errno));
+        log_error("ERROR: read from %s for command '%s' failed: %s", 
+            node->addr, "CLUSTER NODES", strerror(errno));
         goto error;
     }
 
