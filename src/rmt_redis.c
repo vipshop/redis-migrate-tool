@@ -6695,7 +6695,7 @@ static int cluster_update_route_with_nodes(
         if (sdslen(reply) == 0 || reply[0] == '-') {
             log_error("ERROR: password to %s is wrong", node->addr);
             sdsfree(reply);
-            return RMT_ERROR;
+            goto error;
         }
         sdsfree(reply);
     }
