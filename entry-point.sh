@@ -24,6 +24,7 @@ then
 	echo -e "[common]\nlisten: 0.0.0.0:8888"
 	exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
 fi
-cat /migrate/rmt.conf 
-/app/src/redis-migrate-tool -c /migrate/rmt.conf
+cd /migrate
+cat rmt.conf 
+/app/src/redis-migrate-tool -c rmt.conf
 
