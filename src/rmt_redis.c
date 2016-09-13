@@ -551,7 +551,11 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
     if (cp != NULL) {
         rgroup->kind = cp->type;
-        
+
+        if (cp->redis_auth != CONF_UNSET_PTR) {
+            rgroup->password = sdsdup(cp->redis_auth);
+        }
+
         switch(cp->type) {
         case GROUP_TYPE_SINGLE:
             ret = redis_single_init_from_conf(rgroup, cp);
@@ -610,10 +614,6 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
         if (cp->hash != CONF_UNSET_HASH) {
             rgroup->key_hash = hash_algos[cp->hash];
-        }
-
-        if (cp->redis_auth != CONF_UNSET_PTR) {
-            rgroup->password = sdsdup(cp->redis_auth);
         }
 
         if (cp->timeout != CONF_UNSET_NUM) {
@@ -7062,11 +7062,6 @@ int redis_cluster_init_from_conf(redis_group *rgroup, conf_pool *cp)
     if(rgroup == NULL || cp == NULL || 
         cp->servers == NULL){
         return RMT_ERROR;
-    }
-
-    // add auth in the conf to redis_group 
-    if (cp->redis_auth != CONF_UNSET_PTR) {
-        rgroup->password = sdsdup(cp->redis_auth);
     }
 
     for(i = 0; i < array_n(cp->servers); i ++){
