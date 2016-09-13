@@ -551,7 +551,11 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
     if (cp != NULL) {
         rgroup->kind = cp->type;
-        
+
+        if (cp->redis_auth != CONF_UNSET_PTR) {
+            rgroup->password = sdsdup(cp->redis_auth);
+        }
+
         switch(cp->type) {
         case GROUP_TYPE_SINGLE:
             ret = redis_single_init_from_conf(rgroup, cp);
@@ -610,10 +614,6 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
 
         if (cp->hash != CONF_UNSET_HASH) {
             rgroup->key_hash = hash_algos[cp->hash];
-        }
-
-        if (cp->redis_auth != CONF_UNSET_PTR) {
-            rgroup->password = sdsdup(cp->redis_auth);
         }
 
         if (cp->timeout != CONF_UNSET_NUM) {
@@ -6600,41 +6600,39 @@ static ssize_t rmt_redis_sync_read_string(int fd, char *ptr, long long timeout) 
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
     
-    if(c != '$')
-    {
+    if (c != '$') {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
-    do{
+    do {
         if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
 
-        if(isdigit(c))
-        {
+        if (isdigit(c)) {
             size = size * 10 + (ssize_t)(c - '0');
-        }
-        else if(c != CR)
-        {
+        } else if(c != CR) {
+            errno = ENOPROTOOPT;
             return -1;
         }           
-    }while(isdigit(c));
+    } while(isdigit(c));
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != LF)
-    {
+    if (c != LF) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
     if (rmt_sync_read(fd,ptr,size,timeout) == -1) return -1;
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != CR)
-    {
+    if (c != CR) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
     if (rmt_sync_read(fd,&c,1,timeout) == -1) return -1;
-    if(c != LF)
-    {
+    if (c != LF) {
+        errno = ENOPROTOOPT;
         return -1;
     }
 
@@ -6688,18 +6686,29 @@ static int cluster_update_route_with_nodes(
         log_error("ERROR: out of memory");
         goto error;
     }
-    
+
+    if (rgroup->password) {
+        sds reply;
+        reply = rmt_send_sync_cmd_read_line(tc->sd, "auth", rgroup->password, NULL);
+        if (sdslen(reply) == 0 || reply[0] == '-') {
+            log_error("ERROR: password to %s is wrong", node->addr);
+            sdsfree(reply);
+            goto error;
+        }
+        sdsfree(reply);
+    }
+
     if (rmt_sync_write(tc->sd,REDIS_COMMAND_CLUSTER_NODES,
         rmt_strlen(REDIS_COMMAND_CLUSTER_NODES),1000) == -1){
-        log_error("ERROR: send to %s command %s failed", 
-            node->addr, REDIS_COMMAND_CLUSTER_NODES);
+        log_error("ERROR: send to %s for command '%s' failed", 
+            node->addr, "CLUSTER NODES");
         goto error;
     }
 
     /* Read the reply from the server. */
     if ((buf_len = (int)rmt_redis_sync_read_string(tc->sd,buf,1000)) == -1){
-        log_error("ERROR: read from %s command %s failed: %s", 
-            node->addr, REDIS_COMMAND_CLUSTER_NODES, strerror(errno));
+        log_error("ERROR: read from %s for command '%s' failed: %s", 
+            node->addr, "CLUSTER NODES", strerror(errno));
         goto error;
     }
 
@@ -7052,7 +7061,7 @@ int redis_cluster_init_from_conf(redis_group *rgroup, conf_pool *cp)
         cp->servers == NULL){
         return RMT_ERROR;
     }
-    
+
     for(i = 0; i < array_n(cp->servers); i ++){
         str = array_get(cp->servers, i);
         if(redis_group_add_node(rgroup, *str, *str) == NULL)
