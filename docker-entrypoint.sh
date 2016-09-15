@@ -23,7 +23,7 @@ if [ "$1" = 'migrate' ]; then
 		then
 			echo -e "${TARGET}"
 		fi
-		echo -e "[common]\nlisten: 0.0.0.0:8888"
+		echo -e "[common]\nlisten: 0.0.0.0:8888\nstep: 4\mbuf_size: 4096\n"
 		exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
 	fi
 	cd /migrate
