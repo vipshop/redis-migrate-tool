@@ -21,7 +21,7 @@ then
 	then
 		echo -e "${TARGET}"
 	fi
-	echo -e "[common]\nlisten: 0.0.0.0:8888"
+	echo -e "[common]\n${COMMON:-listen: 0.0.0.0:8888}"
 	exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
 fi
 cd /migrate
