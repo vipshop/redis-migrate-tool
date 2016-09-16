@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python-pip auto
 RUN pip install awscli	
 EXPOSE 8888 
 VOLUME /migrate
-ADD entry-point.sh /
-RUN chmod +x /entry-point.sh
-CMD ["/entry-point.sh"]
+ADD docker-entrypoint.sh /
+RUN chmod +x /docker-entrypoint.sh
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["migrate"]
