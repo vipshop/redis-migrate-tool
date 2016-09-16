@@ -6,8 +6,9 @@ The container can be run by either:
 - or, defining environment variables to create the configuration dynamically.
 
 ### Variables
-- SOURCE: a string with new lines delimiter that defines the source redis (such as `type: single\nservers:\n-127.0.0.1:6379`)
-- TARGET: an optional string with new lines delimiter that defines the target redis (as above). 
+- SOURCE: a string with new line delimiters ('\n') that defines the source redis (such as `type: single\nservers:\n-127.0.0.1:6379`)
+- TARGET: an optional string with new line delimiters that defines the target redis (as above). 
+- COMMON:  a string with new lines delimiter that defines the common options (as above)
 - REPLICATION_GROUP: Alternatively to target, an Elastic cache replication group id can be specified and the container will query for the corresponding primary endpoint.
 - AWS_DEFAULT_REGION: Optional, the AWS region.
 - AWS_ACCESS_KEY_ID: Optional, the AWS access key.
