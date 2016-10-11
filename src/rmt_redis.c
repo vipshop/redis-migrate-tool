@@ -2369,6 +2369,8 @@ redis_argzormore(struct msg *r)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_INFO:
+    case MSG_REQ_REDIS_MULTI:
+    case MSG_REQ_REDIS_EXEC:
     case MSG_REQ_REDIS_SHUTDOWN:
         return 1;
 
@@ -2716,6 +2718,12 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str4icmp(m, 'e', 'x', 'e', 'c')) {
+                    r->type = MSG_REQ_REDIS_EXEC;
+                    r->noforward = 1;
+                    break;
+                }
+
                 break;
 
             case 5:
@@ -2806,6 +2814,12 @@ redis_parse_req(struct msg *r)
 
                 if (str5icmp(m, 'p', 'f', 'a', 'd', 'd')) {
                     r->type = MSG_REQ_REDIS_PFADD;
+                    break;
+                }
+
+                if (str5icmp(m, 'm', 'u', 'l', 't', 'i')) {
+                    r->type = MSG_REQ_REDIS_MULTI;
+                    r->noforward = 1;
                     break;
                 }
 
