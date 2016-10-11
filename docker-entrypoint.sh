@@ -9,21 +9,24 @@ if [ "$1" = 'migrate' ]; then
 	then
 		exec 6>&1           		 # Link file descriptor #6 with stdout.
 		exec > /migrate/rmt.conf     # stdout replaced with file.
-		echo -e "[source]\n${SOURCE}"
-		echo -e "[target]"
+		echo "[source]"
+		echo "${SOURCE}" | base64 --decode
+		echo "[target]"
 		if [ -n "${REPLICATION_GROUP}" ]
 		then
-			echo -e "type: single\nservers:"
+			echo "type: single"
+			echo "servers:"
 			servers=$(aws elasticache describe-replication-groups --query "ReplicationGroups[?ReplicationGroupId==\`${REPLICATION_GROUP}\`].NodeGroups[].[PrimaryEndpoint.Address]" --output text)
 			for server in "${servers}"
 			do 
-				echo "-${server}:6379"
+				echo " - ${server}:6379"
 		    done
 		elif [ -n "${TARGET}" ]
 		then
-			echo -e "${TARGET}"
+			echo "${TARGET}" | base64 --decode
 		fi
-		echo -e "[common]\n${COMMON:-listen: 0.0.0.0:8888}"
+		echo "[common]"
+		echo ${COMMON}" | base64 --decode
 		exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
 	fi
 	cd /migrate
