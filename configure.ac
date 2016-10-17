@@ -5,7 +5,7 @@ m4_define([RMT_PATCH], 0)
 m4_define([RMT_BUGS], [diguo58@gmail.com])
 
 # Initialize autoconf
-AC_PREREQ([2.64])
+AC_PREREQ([2.63])
 AC_INIT([redis-migrate-tool], [RMT_MAJOR.RMT_MINOR.RMT_PATCH], [RMT_BUGS])
 AC_CONFIG_SRCDIR([src/rmt.c])
 AC_CONFIG_AUX_DIR([config])
