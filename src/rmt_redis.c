@@ -608,7 +608,8 @@ int redis_group_init(rmtContext *ctx, redis_group *rgroup,
             rgroup->get_backend_node = NULL;
             break;
         default:
-            NOT_REACHED();
+            log_error("ERROR: Unknown group type");
+            goto error;
             break;
         }
 
