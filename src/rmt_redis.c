@@ -2371,6 +2371,8 @@ redis_argzormore(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_INFO:
     case MSG_REQ_REDIS_SHUTDOWN:
+
+    case MSG_REQ_REDIS_COMMAND:
         return 1;
 
     default:
@@ -2974,6 +2976,11 @@ redis_parse_req(struct msg *r)
 
                 if (str7icmp(m, 'p', 'f', 'm', 'e', 'r', 'g', 'e')) {
                     r->type = MSG_REQ_REDIS_PFMERGE;
+                    break;
+                }
+
+                if (str7icmp(m, 'c', 'o', 'm', 'm', 'a', 'n', 'd')) {
+                    r->type = MSG_REQ_REDIS_COMMAND;
                     break;
                 }
 

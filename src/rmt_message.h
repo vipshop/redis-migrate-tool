@@ -25,7 +25,7 @@ typedef enum msg_parse_result {
 #define MSG_TYPE_CODEC(ACTION)                                                                      \
     ACTION( UNKNOWN )                                                                               \
     ACTION( REQ_REDIS_SELECT )                                                                      \
-    ACTION( REQ_REDIS_DEL )                    /* redis commands - keys */                            \
+    ACTION( REQ_REDIS_DEL )                    /* redis commands - keys */                          \
     ACTION( REQ_REDIS_EXISTS )                                                                      \
     ACTION( REQ_REDIS_EXPIRE )                                                                      \
     ACTION( REQ_REDIS_EXPIREAT )                                                                    \
@@ -36,7 +36,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_SORT )                                                                        \
     ACTION( REQ_REDIS_TTL )                                                                         \
     ACTION( REQ_REDIS_TYPE )                                                                        \
-    ACTION( REQ_REDIS_APPEND )                 /* redis requests - string */                            \
+    ACTION( REQ_REDIS_APPEND )                 /* redis requests - string */                        \
     ACTION( REQ_REDIS_BITCOUNT )                                                                    \
     ACTION( REQ_REDIS_DECR )                                                                        \
     ACTION( REQ_REDIS_DECRBY )                                                                      \
@@ -124,14 +124,15 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_ZSCORE )                                                                      \
     ACTION( REQ_REDIS_ZUNIONSTORE )                                                                 \
     ACTION( REQ_REDIS_ZSCAN )                                                                       \
-    ACTION( REQ_REDIS_EVAL )                   /* redis requests - eval */                              \
+    ACTION( REQ_REDIS_EVAL )                   /* redis requests - eval */                          \
     ACTION( REQ_REDIS_EVALSHA )                                                                     \
-    ACTION( REQ_REDIS_PING )                   /* redis requests - ping/quit */                         \
+    ACTION( REQ_REDIS_PING )                   /* redis requests - ping/quit */                     \
     ACTION( REQ_REDIS_INFO )                                                                        \
     ACTION( REQ_REDIS_QUIT )                                                                        \
     ACTION( REQ_REDIS_AUTH )                                                                        \
     ACTION( REQ_REDIS_SHUTDOWN )                                                                    \
-    ACTION( RSP_REDIS_STATUS )                 /* redis response */                                   \
+    ACTION( REQ_REDIS_COMMAND )                                                                     \
+    ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \
     ACTION( RSP_REDIS_BULK )                                                                        \

@@ -460,6 +460,13 @@ req_make_reply(rmtContext *ctx, rmt_connect *conn, struct msg *req)
         return RMT_OK;
         break;
     }
+    case MSG_REQ_REDIS_COMMAND:
+    {
+        str = sdsnew("-ERR this is redis-migrate-tool, not support 'COMMAND'.\r\n");
+        ret = msg_append(msg, (uint8_t *)str, sdslen(str));
+        sdsfree(str);
+        break;
+    }
     default:
         str = sdsnew(ERROR_RESPONSE_NOTSUPPORT);
         ret = msg_append(msg, (uint8_t *)str, sdslen(str));
