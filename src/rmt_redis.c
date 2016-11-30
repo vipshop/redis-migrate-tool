@@ -6296,7 +6296,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             key, array_n(value));
 
         if (rdb->handler != NULL && 
-            (srgroup->get_backend_node == NULL || 
+            (srgroup->kind == GROUP_TYPE_SINGLE || srgroup->get_backend_node == NULL || 
             srgroup->get_backend_node(srgroup, key, sdslen(key)) == srnode) && 
             (ctx->filter == NULL || 
             stringmatchlen(ctx->filter, sdslen(ctx->filter), key, sdslen(key), 0))) {
