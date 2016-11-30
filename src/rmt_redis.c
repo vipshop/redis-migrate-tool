@@ -6132,6 +6132,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     rmtContext *ctx = srnode->ctx;
     redis_rdb *rdb = srnode->rdb;
     thread_data *wdata = srnode->write_data;
+    redis_group *srgroup = srnode->owner;
     redis_group *trgroup = wdata->trgroup;
     char buf[20];
     size_t len;
@@ -6294,7 +6295,10 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
         log_debug(LOG_DEBUG, "key: %s, value array length: %u", 
             key, array_n(value));
 
-        if (rdb->handler != NULL && (ctx->filter == NULL || 
+        if (rdb->handler != NULL && 
+            (srgroup->get_backend_node == NULL || 
+            srgroup->get_backend_node(srgroup, key, sdslen(key)) == srnode) && 
+            (ctx->filter == NULL || 
             stringmatchlen(ctx->filter, sdslen(ctx->filter), key, sdslen(key), 0))) {
             ret = rdb->handler(srnode, key, data_type, value, 
                 expiretime_type, expiretime, trgroup);
