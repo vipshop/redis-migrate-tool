@@ -1653,9 +1653,20 @@ static int prepare_send_data(redis_node *srnode)
     
     msg = srnode->msg;
     srnode->msg = NULL;
+
+    if (msg->not_support) {
+        sds command_name = msg_cmd_string(msg->type);
+        log_error("ERROR: command '%s' is not supported, and ignored. See all the not supported commands, "
+            "please run the 'redis-migrate-tool -I' command.", command_name==NULL?"UNKNOW":command_name);
+        
+        msg_put(msg);
+        msg_free(msg);
+        
+        if (command_name) sdsfree(command_name);
+        return RMT_OK;
+    }
     
-    if(msg->noforward)
-    {
+    if (msg->noforward) {
         msg_put(msg);
         msg_free(msg);
         return RMT_OK;

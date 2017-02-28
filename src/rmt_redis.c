@@ -2311,6 +2311,8 @@ redis_argx(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_MGET:
     case MSG_REQ_REDIS_DEL:
+
+    case MSG_REQ_REDIS_RENAME:
         return 1;
 
     default:
@@ -2916,6 +2918,13 @@ redis_parse_req(struct msg *r)
                 if (str6icmp(m, 's', 'e', 'l', 'e', 'c', 't')) {
                     r->type = MSG_REQ_REDIS_SELECT;
                     r->noforward = 1;
+                    break;
+                }
+
+                if (str6icmp(m, 'r', 'e', 'n', 'a', 'm', 'e')) {
+                    r->type = MSG_REQ_REDIS_RENAME;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
                 

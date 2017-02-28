@@ -82,6 +82,7 @@ _msg_get(void)
     msg->quit = 0;
     msg->noreply = 0;
     msg->noforward = 0;
+    msg->not_support = 0;
 
     msg->kind = 0;
 
@@ -202,6 +203,30 @@ char*
 msg_type_string(msg_type_t type)
 {
     return msg_type_strings[type];
+}
+
+sds
+msg_cmd_string(msg_type_t type)
+{
+    char *msg_string;
+    sds *parts = NULL; 
+    int parts_count = 0;
+    sds command = NULL;
+
+    msg_string = msg_type_string(type);
+    parts = sdssplitlen(msg_string,strlen(msg_string),"_",1,&parts_count);
+    if (parts == NULL) return command;
+
+    if (parts_count != 3) {
+        sdsfreesplitres(parts, parts_count);
+        return command;
+    }
+
+    command = parts[2];
+    parts[2] = NULL;
+    sdsfreesplitres(parts, parts_count);
+
+    return command;
 }
 
 int
@@ -628,6 +653,17 @@ void show_can_be_parsed_cmd(void)
 
     log_stdout("Can Be Parsed Redis commands(%d): %s", supported_redis_cmd_count, parsed_redis_cmd);
     sdsfree(parsed_redis_cmd);
+}
+
+void show_not_supported_cmd(void)
+{
+    int not_supported_redis_cmd_count = 0;
+    sds not_supported_redis_cmd = sdsempty();
+
+    not_supported_redis_cmd = sdscat(not_supported_redis_cmd,"RENAME");not_supported_redis_cmd_count++;
+    log_stdout("Not Supported Redis Commands(%d): %s", not_supported_redis_cmd_count, not_supported_redis_cmd);
+    log_stdout("These not supported redis commands are parsed correctly, but will be discarded and not sent to the target redis.");
+    sdsfree(not_supported_redis_cmd);
 }
 
 #ifdef RMT_MEMORY_TEST

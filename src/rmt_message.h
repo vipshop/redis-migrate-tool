@@ -132,6 +132,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_AUTH )                                                                        \
     ACTION( REQ_REDIS_SHUTDOWN )                                                                    \
     ACTION( REQ_REDIS_COMMAND )                                                                     \
+    ACTION( REQ_REDIS_RENAME )                                                                      \
     ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \
@@ -203,6 +204,7 @@ struct msg {
     unsigned             quit:1;          /* quit request? */
     unsigned             noreply:1;       /* noreply? */
     unsigned             noforward:1;     /* not need forward (example: ping) */
+    unsigned             not_support:1;   /* not support this command (example: rename) */
 
     unsigned             sent:1;          /* have send to target */
 
@@ -212,6 +214,7 @@ struct msg {
 };
 
 char *msg_type_string(msg_type_t type);
+sds msg_cmd_string(msg_type_t type);
 struct msg *msg_get(mbuf_base *mb, int request, int type);
 void msg_free(struct msg *msg);
 void msg_put(struct msg *msg);
@@ -266,4 +269,6 @@ int msg_data_compare(struct msg *msg1, struct msg *msg2);
 } while (0)
 
 void show_can_be_parsed_cmd(void);
+void show_not_supported_cmd(void);
+
 #endif

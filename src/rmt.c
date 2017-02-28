@@ -437,6 +437,8 @@ rmt_create_pidfile(struct instance *rmti)
 static void show_information(void)
 {
     show_can_be_parsed_cmd();
+    log_stdout("");
+    show_not_supported_cmd();
 }
 
 int main(int argc,char *argv[])
