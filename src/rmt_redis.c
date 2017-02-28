@@ -2088,6 +2088,7 @@ redis_argz(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_PING:
     case MSG_REQ_REDIS_QUIT:
+    case MSG_REQ_REDIS_FLUSHALL:
         return 1;
 
     default:
@@ -3029,6 +3030,13 @@ redis_parse_req(struct msg *r)
                 if (str8icmp(m, 's', 'h', 'u', 't', 'd', 'o', 'w', 'n')) {
                     r->type = MSG_REQ_REDIS_SHUTDOWN;
                     r->noforward = 1;
+                    break;
+                }
+
+                if (str8icmp(m, 'f', 'l', 'u', 's', 'h', 'a', 'l', 'l')) {
+                    r->type = MSG_REQ_REDIS_FLUSHALL;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
