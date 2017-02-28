@@ -133,6 +133,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_SHUTDOWN )                                                                    \
     ACTION( REQ_REDIS_COMMAND )                                                                     \
     ACTION( REQ_REDIS_RENAME )                                                                      \
+    ACTION( REQ_REDIS_RENAMENX )                                                                    \
     ACTION( REQ_REDIS_BRPOPLPUSH )                                                                  \
     ACTION( REQ_REDIS_FLUSHALL )                                                                    \
     ACTION( REQ_REDIS_FLUSHDB )                                                                     \

@@ -2316,6 +2316,7 @@ redis_argx(struct msg *r)
     case MSG_REQ_REDIS_DEL:
 
     case MSG_REQ_REDIS_RENAME:
+    case MSG_REQ_REDIS_RENAMENX:
     case MSG_REQ_REDIS_RPOPLPUSH:
         return 1;
 
@@ -3043,6 +3044,13 @@ redis_parse_req(struct msg *r)
 
                 if (str8icmp(m, 'f', 'l', 'u', 's', 'h', 'a', 'l', 'l')) {
                     r->type = MSG_REQ_REDIS_FLUSHALL;
+                    r->noforward = 1;
+                    r->not_support = 1;
+                    break;
+                }
+
+                if (str8icmp(m, 'r', 'e', 'n', 'a', 'm', 'e', 'n', 'x')) {
+                    r->type = MSG_REQ_REDIS_RENAMENX;
                     r->noforward = 1;
                     r->not_support = 1;
                     break;

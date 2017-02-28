@@ -652,6 +652,7 @@ void show_can_be_parsed_cmd(void)
     }
 
     log_stdout("Can Be Parsed Redis commands(%d): %s", supported_redis_cmd_count, parsed_redis_cmd);
+    log_stdout("If you find any other commands that can't parsed, please report them on the github issues('https://github.com/vipshop/redis-migrate-tool/issues'), thank you!");
     sdsfree(parsed_redis_cmd);
 }
 
@@ -661,6 +662,7 @@ void show_not_supported_cmd(void)
     sds not_supported_redis_cmd = sdsempty();
 
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,"RENAME");not_supported_redis_cmd_count++;
+    not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",RENAMENX");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",RPOPLPUSH");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",BRPOPLPUSH");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",FLUSHALL");not_supported_redis_cmd_count++;
