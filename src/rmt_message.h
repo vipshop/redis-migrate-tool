@@ -133,6 +133,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_SHUTDOWN )                                                                    \
     ACTION( REQ_REDIS_COMMAND )                                                                     \
     ACTION( REQ_REDIS_RENAME )                                                                      \
+    ACTION( REQ_REDIS_BRPOPLPUSH )                                                                  \
     ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \

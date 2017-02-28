@@ -2219,6 +2219,8 @@ redis_arg2(struct msg *r)
     case MSG_REQ_REDIS_ZREMRANGEBYSCORE:
 
     case MSG_REQ_REDIS_RESTORE:
+
+    case MSG_REQ_REDIS_BRPOPLPUSH:
         return 1;
 
     default:
@@ -3068,6 +3070,14 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str10icmp(m, 'b', 'r', 'p', 'o', 'p', 'l', 'p', 'u', 's', 'h')) {
+                    r->type = MSG_REQ_REDIS_BRPOPLPUSH;
+                    r->noforward = 1;
+                    r->not_support = 1;
+                    break;
+                }
+
+                break;
             case 11:
                 if (str11icmp(m, 'i', 'n', 'c', 'r', 'b', 'y', 'f', 'l', 'o', 'a', 't')) {
                     r->type = MSG_REQ_REDIS_INCRBYFLOAT;
