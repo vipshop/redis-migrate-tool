@@ -661,6 +661,8 @@ void show_not_supported_cmd(void)
     sds not_supported_redis_cmd = sdsempty();
 
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,"RENAME");not_supported_redis_cmd_count++;
+    not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",RPOPLPUSH");not_supported_redis_cmd_count++;
+    
     log_stdout("Not Supported Redis Commands(%d): %s", not_supported_redis_cmd_count, not_supported_redis_cmd);
     log_stdout("These not supported redis commands are parsed correctly, but will be discarded and not sent to the target redis.");
     sdsfree(not_supported_redis_cmd);

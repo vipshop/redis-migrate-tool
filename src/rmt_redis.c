@@ -2169,7 +2169,6 @@ redis_arg1(struct msg *r)
 
     case MSG_REQ_REDIS_LINDEX:
     case MSG_REQ_REDIS_LPUSHX:
-    case MSG_REQ_REDIS_RPOPLPUSH:
     case MSG_REQ_REDIS_RPUSHX:
 
     case MSG_REQ_REDIS_SISMEMBER:
@@ -2313,6 +2312,7 @@ redis_argx(struct msg *r)
     case MSG_REQ_REDIS_DEL:
 
     case MSG_REQ_REDIS_RENAME:
+    case MSG_REQ_REDIS_RPOPLPUSH:
         return 1;
 
     default:
@@ -3040,6 +3040,8 @@ redis_parse_req(struct msg *r)
 
                 if (str9icmp(m, 'r', 'p', 'o', 'p', 'l', 'p', 'u', 's', 'h')) {
                     r->type = MSG_REQ_REDIS_RPOPLPUSH;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
