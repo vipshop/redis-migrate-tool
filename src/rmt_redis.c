@@ -2221,6 +2221,7 @@ redis_arg2(struct msg *r)
     case MSG_REQ_REDIS_ZREMRANGEBYSCORE:
 
     case MSG_REQ_REDIS_RESTORE:
+    case MSG_REQ_REDIS_RESTOREASKING:
 
     case MSG_REQ_REDIS_BRPOPLPUSH:
         return 1;
@@ -3160,6 +3161,11 @@ redis_parse_req(struct msg *r)
             case 14:
                 if (str14icmp(m, 'z', 'r', 'e', 'm', 'r', 'a', 'n', 'g', 'e', 'b', 'y', 'l', 'e', 'x')) {
                     r->type = MSG_REQ_REDIS_ZREMRANGEBYLEX;
+                    break;
+                }
+
+                if (str14icmp(m, 'r', 'e', 's', 't', 'o', 'r', 'e', '-', 'a', 's', 'k', 'i', 'n', 'g')) {
+                    r->type = MSG_REQ_REDIS_RESTOREASKING;
                     break;
                 }
 

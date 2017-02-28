@@ -52,6 +52,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_MSET )                                                                        \
     ACTION( REQ_REDIS_PSETEX )                                                                      \
     ACTION( REQ_REDIS_RESTORE )                                                                     \
+    ACTION( REQ_REDIS_RESTOREASKING )                                                               \
     ACTION( REQ_REDIS_SET )                                                                         \
     ACTION( REQ_REDIS_SETBIT )                                                                      \
     ACTION( REQ_REDIS_SETEX )                                                                       \
