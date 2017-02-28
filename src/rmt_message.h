@@ -265,4 +265,5 @@ int msg_data_compare(struct msg *msg1, struct msg *msg2);
     _msg_dump(__FILE__, __LINE__, _m, _l, _b);              \
 } while (0)
 
+void show_can_be_parsed_cmd(void);
 #endif

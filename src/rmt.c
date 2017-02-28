@@ -434,6 +434,11 @@ rmt_create_pidfile(struct instance *rmti)
     return RMT_OK;
 }
 
+static void show_information(void)
+{
+    show_can_be_parsed_cmd();
+}
+
 int main(int argc,char *argv[])
 {
     r_status status;
@@ -454,6 +459,11 @@ int main(int argc,char *argv[])
             rmt_show_usage();
         }
 
+        exit(0);
+    }
+
+    if (rmti.show_information) {
+        show_information();
         exit(0);
     }
 

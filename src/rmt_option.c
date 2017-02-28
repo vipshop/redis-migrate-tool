@@ -37,6 +37,7 @@ static struct option long_options[] = {
     { "version",        no_argument,        NULL,   'V' },
     { "daemonize",      no_argument,        NULL,   'd' },
     { "noreply",        no_argument,        NULL,   'n' },
+    { "information",    no_argument,        NULL,   'I' },
     { "output",         required_argument,  NULL,   'o' },
     { "verbose",        required_argument,  NULL,   'v' },
     { "conf-file",      required_argument,  NULL,   'c' },
@@ -50,16 +51,17 @@ static struct option long_options[] = {
     { "step",        	required_argument,  NULL,   'S' },
     { "from",        	required_argument,  NULL,   'f' },
     { "to",        	    required_argument,  NULL,   't' },
+    { "step",        	required_argument,  NULL,   's' },
     { NULL,             0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVdno:v:c:p:m:C:r:R:T:b:S:f:t:s:";
+static char short_options[] = "hVdnIo:v:c:p:m:C:r:R:T:b:S:f:t:s:";
 
 void
 rmt_show_usage(void)
 {
     log_stderr(
-        "Usage: redis-migrate-tool [-?hVdn] [-v verbosity level] [-o output file]" CRLF
+        "Usage: redis-migrate-tool [-?hVdIn] [-v verbosity level] [-o output file]" CRLF
         "                  [-c conf file] [-C command]" CRLF
         "                  [-f source address] [-t target address]" CRLF
         "                  [-p pid file] [-m mbuf size] [-r target role]" CRLF
@@ -70,6 +72,7 @@ rmt_show_usage(void)
         "  -h, --help             : this help" CRLF
         "  -V, --version          : show version and exit" CRLF
         "  -d, --daemonize        : run as a daemon" CRLF
+        "  -I, --information      : print some useful information" CRLF
         "  -n, --noreply          : don't receive the target redis reply");
     log_stderr(
         "  -v, --verbosity=N      : set logging level (default: %d, min: %d, max: %d)" CRLF
@@ -108,6 +111,7 @@ rmt_set_default_options(struct instance *nci)
 {
 	nci->show_version = 0;
 	nci->show_help = 0;
+    nci->show_information = 0;
 	nci->daemonize = 0;
     nci->noreply = 0;
 	
@@ -174,6 +178,10 @@ rmt_get_options(int argc, char **argv, struct instance *nci)
 
         case 'n':
             nci->noreply = 1;
+            break;
+
+        case 'I':
+            nci->show_information = 1;
             break;
 
         case 'v':

@@ -159,6 +159,7 @@ struct instance {
     
     int             show_help;
     int             show_version;
+    int             show_debug;
     int             daemonize;
     
     char            *command;

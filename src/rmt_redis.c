@@ -2177,8 +2177,6 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_ZRANK:
     case MSG_REQ_REDIS_ZREVRANK:
     case MSG_REQ_REDIS_ZSCORE:
-        
-    case MSG_REQ_REDIS_SELECT:
         return 1;
 
     default:
@@ -2292,6 +2290,8 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZREVRANGEBYSCORE:
     case MSG_REQ_REDIS_ZUNIONSTORE:
     case MSG_REQ_REDIS_ZSCAN:
+
+    case MSG_REQ_REDIS_SELECT:
         return 1;
 
     default:
@@ -2350,8 +2350,6 @@ redis_argeval(struct msg *r)
     switch (r->type) {
     case MSG_REQ_REDIS_EVAL:
     case MSG_REQ_REDIS_EVALSHA:
-        
-    case MSG_REQ_REDIS_SELECT:
         return 1;
 
     default:

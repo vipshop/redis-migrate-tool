@@ -589,6 +589,47 @@ int msg_data_compare(struct msg *msg1, struct msg *msg2)
     return 0;
 }
 
+void show_can_be_parsed_cmd(void)
+{
+    unsigned int j, len = sizeof(msg_type_strings)/sizeof(msg_type_strings[0]);
+    char *msg_string;
+    sds parsed_redis_cmd = sdsempty();
+    int supported_redis_cmd_count = 0;
+    sds *parts = NULL; 
+    int parts_count = 0;
+
+    for (j = 0; j < len; j ++) {
+        msg_string = msg_type_strings[j];
+        if (msg_string == NULL)
+            break;
+        
+        parts = sdssplitlen(msg_string,strlen(msg_string),"_",1,&parts_count);
+        if (parts == NULL) continue;
+        if (parts_count != 3) {
+            sdsfreesplitres(parts,parts_count);
+            continue;
+        }
+
+        if (sdslen(parts[0]) != strlen("REQ") || strcmp(parts[0],"REQ")) {
+            sdsfreesplitres(parts,parts_count);
+            continue;
+        }
+
+        if (sdslen(parts[1]) == strlen("REDIS") && strcmp(parts[1],"REDIS") == 0) {
+            if (sdslen(parsed_redis_cmd) > 0) {
+                parsed_redis_cmd = sdscat(parsed_redis_cmd,",");
+            }
+            parsed_redis_cmd = sdscatsds(parsed_redis_cmd,parts[2]);
+            supported_redis_cmd_count ++;
+        }
+        
+        sdsfreesplitres(parts,parts_count);
+    }
+
+    log_stdout("Can Be Parsed Redis commands(%d): %s", supported_redis_cmd_count, parsed_redis_cmd);
+    sdsfree(parsed_redis_cmd);
+}
+
 #ifdef RMT_MEMORY_TEST
 int msg_used_init(void)
 {
