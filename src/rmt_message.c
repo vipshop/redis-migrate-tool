@@ -667,6 +667,7 @@ void show_not_supported_cmd(void)
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",BRPOPLPUSH");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",FLUSHALL");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",FLUSHDB");not_supported_redis_cmd_count++;
+    not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",BITOP");not_supported_redis_cmd_count++;
     
     log_stdout("Not Supported Redis Commands(%d): %s", not_supported_redis_cmd_count, not_supported_redis_cmd);
     log_stdout("These not supported redis commands are parsed correctly, but will be discarded and not sent to the target redis.");

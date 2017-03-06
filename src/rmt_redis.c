@@ -2322,6 +2322,8 @@ redis_argx(struct msg *r)
     case MSG_REQ_REDIS_RENAME:
     case MSG_REQ_REDIS_RENAMENX:
     case MSG_REQ_REDIS_RPOPLPUSH:
+
+    case MSG_REQ_REDIS_BITOP:
         return 1;
 
     default:
@@ -2818,6 +2820,13 @@ redis_parse_req(struct msg *r)
 
                 if (str5icmp(m, 'p', 'f', 'a', 'd', 'd')) {
                     r->type = MSG_REQ_REDIS_PFADD;
+                    break;
+                }
+
+                if (str5icmp(m, 'b', 'i', 't', 'o', 'p')) {
+                    r->type = MSG_REQ_REDIS_BITOP;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
