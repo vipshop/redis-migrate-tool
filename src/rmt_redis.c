@@ -2301,6 +2301,7 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_ZSCAN:
 
     case MSG_REQ_REDIS_SELECT:
+    case MSG_REQ_REDIS_GEOADD:
         return 1;
 
     default:
@@ -2981,6 +2982,11 @@ redis_parse_req(struct msg *r)
 
                 if (str6icmp(m, 'm', 's', 'e', 't', 'n', 'x')) {
                     r->type = MSG_REQ_REDIS_MSETNX;
+                    break;
+                }
+
+                if (str6icmp(m, 'g', 'e', 'o', 'a', 'd', 'd')) {
+                    r->type = MSG_REQ_REDIS_GEOADD;
                     break;
                 }
                 
