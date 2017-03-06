@@ -2303,6 +2303,7 @@ redis_argn(struct msg *r)
     case MSG_REQ_REDIS_SELECT:
     case MSG_REQ_REDIS_GEOADD:
     case MSG_REQ_REDIS_GEORADIUS:
+    case MSG_REQ_REDIS_GEORADIUSBYMEMBER:
         return 1;
 
     default:
@@ -3268,6 +3269,16 @@ redis_parse_req(struct msg *r)
 
                 if (str16icmp(m, 'z', 'r', 'e', 'v', 'r', 'a', 'n', 'g', 'e', 'b', 'y', 's', 'c', 'o', 'r', 'e')) {
                     r->type = MSG_REQ_REDIS_ZREVRANGEBYSCORE;
+                    break;
+                }
+
+                break;
+
+            case 17:
+                if (str17icmp(m, 'g', 'e', 'o', 'r', 'a', 'd', 'i', 'u', 's', 'b', 'y', 'm', 'e', 'm', 'b', 'e', 'r')) {
+                    r->type = MSG_REQ_REDIS_GEORADIUSBYMEMBER;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
