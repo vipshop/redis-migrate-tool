@@ -2178,6 +2178,8 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_ZRANK:
     case MSG_REQ_REDIS_ZREVRANK:
     case MSG_REQ_REDIS_ZSCORE:
+
+    case MSG_REQ_REDIS_PUBLISH:
         return 1;
 
     default:
@@ -3001,6 +3003,13 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_FLUSHDB;
                     r->noforward = 1;
                     r->not_support = 1;
+                    break;
+                }
+
+                if (str7icmp(m, 'p', 'u', 'b', 'l', 'i', 's', 'h')) {
+                    r->type = MSG_REQ_REDIS_PUBLISH;
+                    /* PUBLISH command will not sent to the target group. */
+                    r->noforward = 1;
                     break;
                 }
 
