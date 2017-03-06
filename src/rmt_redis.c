@@ -2397,6 +2397,25 @@ redis_argzormore(struct msg *r)
 }
 
 /*
+ * Return true, if the redis command accepts one subcommand, then one key, 
+ * and 0 or more arguments, otherwise return false
+ */
+static int
+redis_subcmd_onekey_argzormore(struct msg *r)
+{
+    switch (r->type) {
+    case MSG_REQ_REDIS_PFDEBUG:
+        return 1;
+
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+
+/*
  * Reference: http://redis.io/topics/protocol
  *
  * Redis >= 1.2 uses the unified protocol to send requests to the Redis
@@ -2434,6 +2453,10 @@ redis_parse_req(struct msg *r)
         SW_REQ_TYPE_LEN_LF,
         SW_REQ_TYPE,
         SW_REQ_TYPE_LF,
+        SW_SUBCMD_LEN,
+        SW_SUBCMD_LEN_LF,
+        SW_SUBCMD,
+        SW_SUBCMD_LF,
         SW_KEY_LEN,
         SW_KEY_LEN_LF,
         SW_KEY,
@@ -3038,6 +3061,11 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str7icmp(m, 'p', 'f', 'd', 'e', 'b', 'u', 'g')) {
+                    r->type = MSG_REQ_REDIS_PFDEBUG;
+                    break;
+                }
+
                 break;
 
             case 8:
@@ -3252,6 +3280,8 @@ redis_parse_req(struct msg *r)
                     goto done;
                 } else if (redis_argeval(r)) {
                     state = SW_ARG1_LEN;
+                } else if (redis_subcmd_onekey_argzormore(r)) {
+                    state = SW_SUBCMD_LEN;
                 } else if (redis_argzormore(r)) {
                     if (r->narg == 1) {
                         goto done;
@@ -3266,6 +3296,76 @@ redis_parse_req(struct msg *r)
                 goto error;
             }
 
+            break;
+
+        case SW_SUBCMD_LEN:
+            if (r->token == NULL) {
+                if (ch != '$') {
+                    goto error;
+                }
+                r->rlen = 0;
+                r->token = p;
+            } else if (isdigit(ch)) {
+                r->rlen = r->rlen * 10 + (uint32_t)(ch - '0');
+            } else if (ch == CR) {
+                if ((p - r->token) <= 1 || r->rnarg == 0) {
+                    goto error;
+                }
+                r->rnarg--;
+                r->token = NULL;
+                state = SW_SUBCMD_LEN_LF;
+            } else {
+                goto error;
+            }
+            break;
+            
+        case SW_SUBCMD_LEN_LF:
+            switch (ch) {
+            case LF:
+                state = SW_SUBCMD;
+                break;
+
+            default:
+                goto error;
+            }
+            break;
+
+        case SW_SUBCMD:
+            m = p + r->rlen;
+            if (m >= b->last) {
+                r->rlen -= (uint32_t)(b->last - p);
+                m = b->last - 1;
+                p = m;
+                break;
+            }
+
+            if (*m != CR) {
+                goto error;
+            }
+
+            p = m; /* move forward by rlen bytes */
+            r->rlen = 0;
+
+            state = SW_SUBCMD_LF;
+            break;
+
+        case SW_SUBCMD_LF:
+            switch (ch) {
+            case LF:
+                if (redis_subcmd_onekey_argzormore(r)) {
+                    if (r->rnarg == 0) {
+                        goto error;
+                    }
+                    state = SW_KEY_LEN;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            default:
+                goto error;
+            }
             break;
 
         case SW_KEY_LEN:
@@ -3390,6 +3490,11 @@ redis_parse_req(struct msg *r)
                     }
                     state = SW_ARG1_LEN;
                 } else if (redis_argeval(r)) {
+                    if (r->rnarg == 0) {
+                        goto done;
+                    }
+                    state = SW_ARGN_LEN;
+                } else if (redis_subcmd_onekey_argzormore(r)) {
                     if (r->rnarg == 0) {
                         goto done;
                     }
@@ -3765,7 +3870,7 @@ redis_parse_req(struct msg *r)
         case SW_ARGN_LF:
             switch (ch) {
             case LF:
-                if (redis_argn(r) || redis_argeval(r)) {
+                if (redis_argn(r) || redis_argeval(r) || redis_subcmd_onekey_argzormore(r)) {
                     if (r->rnarg == 0) {
                         goto done;
                     }
