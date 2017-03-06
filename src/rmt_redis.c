@@ -2090,6 +2090,9 @@ redis_argz(struct msg *r)
     case MSG_REQ_REDIS_QUIT:
     case MSG_REQ_REDIS_FLUSHALL:
     case MSG_REQ_REDIS_FLUSHDB:
+
+    case MSG_REQ_REDIS_MULTI:
+    case MSG_REQ_REDIS_EXEC:
         return 1;
 
     default:
@@ -2766,6 +2769,12 @@ redis_parse_req(struct msg *r)
                     break;
                 }
 
+                if (str4icmp(m, 'e', 'x', 'e', 'c')) {
+                    r->type = MSG_REQ_REDIS_EXEC;
+                    r->noforward = 1;
+                    break;
+                }
+
                 break;
 
             case 5:
@@ -2863,6 +2872,12 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_BITOP;
                     r->noforward = 1;
                     r->not_support = 1;
+                    break;
+                }
+
+                if (str5icmp(m, 'm', 'u', 'l', 't', 'i')) {
+                    r->type = MSG_REQ_REDIS_MULTI;
+                    r->noforward = 1;
                     break;
                 }
 
