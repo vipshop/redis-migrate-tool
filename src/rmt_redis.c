@@ -2262,6 +2262,7 @@ redis_argn(struct msg *r)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_BITCOUNT:
+    case MSG_REQ_REDIS_BITFIELD:
 
     case MSG_REQ_REDIS_SET:
     case MSG_REQ_REDIS_HDEL:
@@ -3063,6 +3064,11 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_RENAMENX;
                     r->noforward = 1;
                     r->not_support = 1;
+                    break;
+                }
+
+                if (str8icmp(m, 'b', 'i', 't', 'f', 'i', 'e', 'l', 'd')) {
+                    r->type = MSG_REQ_REDIS_BITFIELD;
                     break;
                 }
 
