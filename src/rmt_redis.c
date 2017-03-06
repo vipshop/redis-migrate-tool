@@ -2342,6 +2342,7 @@ redis_argkvx(struct msg *r)
 {
     switch (r->type) {
     case MSG_REQ_REDIS_MSET:
+    case MSG_REQ_REDIS_MSETNX:
         return 1;
 
     default:
@@ -2943,6 +2944,11 @@ redis_parse_req(struct msg *r)
                     r->type = MSG_REQ_REDIS_RENAME;
                     r->noforward = 1;
                     r->not_support = 1;
+                    break;
+                }
+
+                if (str6icmp(m, 'm', 's', 'e', 't', 'n', 'x')) {
+                    r->type = MSG_REQ_REDIS_MSETNX;
                     break;
                 }
                 
@@ -4302,6 +4308,11 @@ int redis_response_check(redis_node *rnode, struct msg *r)
         }
         
         break;
+    case MSG_REQ_REDIS_MSETNX:
+        if (resp->type != MSG_RSP_REDIS_INTEGER || resp->integer != 1) {
+            goto error;
+        }
+        break;
     default:
 
         break;
@@ -4515,7 +4526,7 @@ void redis_pre_coalesce(struct msg *r)
         break;
 
     case MSG_RSP_REDIS_STATUS:
-        if (pr->type == MSG_REQ_REDIS_MSET) {       /* MSET segments */
+        if (pr->type == MSG_REQ_REDIS_MSET || pr->type == MSG_REQ_REDIS_MSETNX) {       /* MSET segments */
             mbuf = listFirstValue(r->data);
             r->mlen -= mbuf_length(mbuf);
             mbuf_rewind(mbuf);
@@ -4814,6 +4825,9 @@ static int redis_fragment_argx(redis_group *rgroup,
         } else if (r->type == MSG_REQ_REDIS_MSET) {
             ret = msg_prepend_format(sub_msg, "*%d\r\n$4\r\nmset\r\n",
                                         sub_msg->narg + 1);
+        } else if (r->type == MSG_REQ_REDIS_MSETNX) {
+            ret = msg_prepend_format(sub_msg, "*%d\r\n$6\r\nmsetnx\r\n",
+                                        sub_msg->narg + 1);
         } else {
             ret = RMT_ERROR;
             NOT_REACHED();
@@ -4845,6 +4859,7 @@ int redis_fragment(redis_group *rgroup,
     case MSG_REQ_REDIS_DEL:
         return redis_fragment_argx(rgroup, r, ncontinuum, frag_msgl, 1);
     case MSG_REQ_REDIS_MSET:
+    case MSG_REQ_REDIS_MSETNX:
         return redis_fragment_argx(rgroup, r, ncontinuum, frag_msgl, 2);
     default:
         return RMT_OK;
@@ -4949,6 +4964,7 @@ void redis_post_coalesce(struct msg *r)
     case MSG_REQ_REDIS_DEL:
         return redis_post_coalesce_del(r);
     case MSG_REQ_REDIS_MSET:
+    case MSG_REQ_REDIS_MSETNX:
         return redis_post_coalesce_mset(r);
     default:
         NOT_REACHED();

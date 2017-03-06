@@ -141,6 +141,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_PUBLISH )                                                                     \
     ACTION( REQ_REDIS_BITFIELD )                                                                    \
     ACTION( REQ_REDIS_BITOP )                                                                       \
+    ACTION( REQ_REDIS_MSETNX )                                                                      \
     ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \
