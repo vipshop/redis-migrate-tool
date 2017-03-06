@@ -2180,6 +2180,8 @@ redis_arg1(struct msg *r)
     case MSG_REQ_REDIS_ZSCORE:
 
     case MSG_REQ_REDIS_PUBLISH:
+
+    case MSG_REQ_REDIS_MOVE:
         return 1;
 
     default:
@@ -2728,6 +2730,13 @@ redis_parse_req(struct msg *r)
                 if (str4icmp(m, 'a', 'u', 't', 'h')) {
                     r->type = MSG_REQ_REDIS_AUTH;
                     r->noforward = 1;
+                    break;
+                }
+
+                if (str4icmp(m, 'm', 'o', 'v', 'e')) {
+                    r->type = MSG_REQ_REDIS_MOVE;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
