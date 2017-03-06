@@ -145,6 +145,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_MSETNX )                                                                      \
     ACTION( REQ_REDIS_MOVE )                                                                        \
     ACTION( REQ_REDIS_GEOADD )                                                                      \
+    ACTION( REQ_REDIS_GEORADIUS )                                                                   \
     ACTION( RSP_REDIS_STATUS )                 /* redis response */                                 \
     ACTION( RSP_REDIS_ERROR )                                                                       \
     ACTION( RSP_REDIS_INTEGER )                                                                     \
