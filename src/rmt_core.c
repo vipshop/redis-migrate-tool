@@ -1656,7 +1656,7 @@ static int prepare_send_data(redis_node *srnode)
 
     if (msg->not_support) {
         sds command_name = msg_cmd_string(msg->type);
-        log_error("ERROR: command '%s' is not supported, and ignored. See all the not supported commands, "
+        log_error("ERROR: command '%s' will not be propagated to the target redis group. If you want to see all the not supported writing commands, "
             "please run the 'redis-migrate-tool -I' command.", command_name==NULL?"UNKNOW":command_name);
         
         msg_put(msg);

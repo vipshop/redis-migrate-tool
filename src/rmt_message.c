@@ -652,7 +652,8 @@ void show_can_be_parsed_cmd(void)
     }
 
     log_stdout("Can Be Parsed Redis commands(%d): %s", supported_redis_cmd_count, parsed_redis_cmd);
-    log_stdout("If you find any other commands that can't parsed, please report them on the github issues('https://github.com/vipshop/redis-migrate-tool/issues'), thank you!");
+    log_stdout("Some readonly commands do not need to be parsed, because they will nerver be propagated to redis slave.");
+    log_stdout("If you find any other writing commands that can't be parsed, please report them on the github issues('https://github.com/vipshop/redis-migrate-tool/issues'), thank you!");
     sdsfree(parsed_redis_cmd);
 }
 
@@ -676,8 +677,8 @@ void show_not_supported_cmd(void)
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",SCRIPT");not_supported_redis_cmd_count++;
     not_supported_redis_cmd = sdscat(not_supported_redis_cmd,",PFMERGE");not_supported_redis_cmd_count++;
     
-    log_stdout("Not Supported Redis Commands(%d): %s", not_supported_redis_cmd_count, not_supported_redis_cmd);
-    log_stdout("These not supported redis commands are parsed correctly, but will be discarded and not sent to the target redis.");
+    log_stdout("Not Supported Redis Writing Commands(%d): %s", not_supported_redis_cmd_count, not_supported_redis_cmd);
+    log_stdout("These not supported redis commands can be parsed correctly, but will be discarded and not sent to the target redis group.");
     sdsfree(not_supported_redis_cmd);
 }
 
