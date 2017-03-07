@@ -3074,6 +3074,8 @@ redis_parse_req(struct msg *r)
 
                 if (str7icmp(m, 'p', 'f', 'm', 'e', 'r', 'g', 'e')) {
                     r->type = MSG_REQ_REDIS_PFMERGE;
+                    r->noforward = 1;
+                    r->not_support = 1;
                     break;
                 }
 
