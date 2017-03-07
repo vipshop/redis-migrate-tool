@@ -41,6 +41,12 @@ Before run this tool, make sure your source redis machines have enough memory al
 
 If your source machines have large enough memory allowed all the redis generate rdb files at one time, you can set 'source_safe: false' in the rmt.conf.
 
+## Not supported redis command
+
+The following commands are not supported to be propagated to the target redis group, because the keys in those commands maybe cross different target redis nodes:
+
+RENAME,RENAMENX,RPOPLPUSH,BRPOPLPUSH,FLUSHALL,FLUSHDB,BITOP,MOVE,GEORADIUS,GEORADIUSBYMEMBER,EVAL,EVALSHA,SCRIPT,PFMERGE
+
 ## Configuration
 
 Config file has three parts: source, target and common.
