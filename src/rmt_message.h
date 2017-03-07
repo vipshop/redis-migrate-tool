@@ -128,6 +128,7 @@ typedef enum msg_parse_result {
     ACTION( REQ_REDIS_ZSCAN )                                                                       \
     ACTION( REQ_REDIS_EVAL )                   /* redis requests - eval */                          \
     ACTION( REQ_REDIS_EVALSHA )                                                                     \
+    ACTION( REQ_REDIS_SCRIPT )                                                                      \
     ACTION( REQ_REDIS_PING )                   /* redis requests - ping/quit */                     \
     ACTION( REQ_REDIS_INFO )                                                                        \
     ACTION( REQ_REDIS_QUIT )                                                                        \
