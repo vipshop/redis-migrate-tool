@@ -1027,6 +1027,7 @@ static struct array *write_threads_create_unsafe(rmtContext *ctx, int write_thre
         wdata->id = i;
         
         wdata->nodes_count = step;
+        pre_node = NULL;
     	for(k = begin; k < begin + step; k ++)
     	{
     		de = dictNext(di);
