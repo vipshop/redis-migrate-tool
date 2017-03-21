@@ -2365,6 +2365,22 @@ void redis_migrate(rmtContext *ctx, int type)
         goto done;
     }
 
+    /* This is a bug patch for delete rdb files when target 
+     * group type is rdb file and shutdown command was sent 
+     * to the rmt. */
+    if (ctx->target_type == GROUP_TYPE_RDBFILE) {
+        dictIterator *di;
+        dictEntry *de;
+
+        di = dictGetIterator(srgroup->nodes);
+        while (de = dictNext(di)) {
+            rnode = dictGetVal(de);
+            ASSERT(rnode->rdb != NULL);
+            rnode->rdb->deleted = 0;
+        }
+        dictReleaseIterator(di);
+    }
+
     node_count = (int)dictSize(srgroup->nodes);
 
     ret = assign_threads(node_count, thread_count, 
