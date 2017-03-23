@@ -7743,7 +7743,7 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
         }
 
         if(parts_count == 1){
-            node->name = sdsdup(parts[0]);
+            node->name = sdsempty(); /*set node name latter*/
         }else if(parts_count == 2){
             node->name = parts[1];
             parts[1] = NULL;
@@ -7759,6 +7759,11 @@ redis_twem_init_from_conf(redis_group *rgroup, conf_pool *cp)
             log_error("ERROR: Server %s in twemproxy split by : error",
                 *str_server);
             goto error;
+        }
+
+        /* If there are no server name in the twemproxy conf, set 'host:port' as the node name. */
+        if (parts_count == 1) {
+            node->name = sdscatfmt(node->name, "%S:%S",ip_port_weight[0],ip_port_weight[1]);
         }
 
         node->weight = (uint32_t)rmt_atoi(ip_port_weight[2],sdslen(ip_port_weight[2]));
