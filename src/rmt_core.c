@@ -1182,6 +1182,16 @@ static void *read_thread_run(void *args)
     redis_node *srnode;
     listNode *lnode;
     listIter *it;
+    static int read_num;
+
+    read_num = listLength(nodes);
+    log_notice("init read event num:%u", read_num);
+    it = listGetIterator(nodes, AL_START_HEAD);
+    while((lnode = listNext(it)) != NULL){
+        srnode = listNodeValue(lnode);
+        srnode->event_num = &read_num;
+    }
+    listReleaseIterator(it);
 
     it = listGetIterator(nodes, AL_START_HEAD);
     while((lnode = listNext(it)) != NULL){
@@ -1217,6 +1227,7 @@ static void *read_thread_run(void *args)
     listReleaseIterator(it);
 
     aeMain(rdata->loop);
+    log_notice("read thread over");
 
     return 0;
 }
@@ -1275,6 +1286,7 @@ static void *write_thread_run(void *args)
     rmt_write(srnode->sockpairfds[1], " ", 1);
 
     aeMain(wdata->loop);
+    log_notice("write thread over");
 
     return 0;
 }
@@ -2550,19 +2562,30 @@ void redis_migrate(rmtContext *ctx, int type)
 
     log_notice("migrate job is running...");
 
-    aeMain(ctx->loop);
+    // aeMain(ctx->loop);
 
 	//wait for the read job finish
 	for(i = 0; i < read_threads_count; i ++){
 		rdata = array_get(read_datas, (uint32_t)i);
 		pthread_join(rdata->thread_id, NULL);
 	}
+    log_notice("migrate read job over");
 
 	//wait for the write job finish
 	for(i = 0; i < write_threads_count; i ++){
-		wdata = array_get(write_datas, (uint32_t)i);
+        wdata = array_get(write_datas, (uint32_t)i);
+        list *nodes = wdata->nodes;  //type : source redis_node
+        redis_group *srgroup;
+        redis_node *srnode = listFirstValue(nodes);
+        if(srnode != NULL){
+            srgroup = srnode->owner;
+            if(srgroup->kind != GROUP_TYPE_RDBFILE){
+                aeStop(wdata->loop);
+            }
+        }
 		pthread_join(wdata->thread_id, NULL);
 	}
+    log_notice("migrate write job over");
 
 done:
 

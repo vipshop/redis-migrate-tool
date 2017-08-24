@@ -1651,6 +1651,11 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             log_notice("Rdb file received, disconnect from the node[%s]", 
                 srnode->addr);
             notice_write_thread(srnode);    /* Let the next node begin replication */
+            int event_num = __sync_fetch_and_sub(srnode->event_num, 1);
+            log_notice("current read event number:%u", event_num - 1);
+            if (event_num == 1) {
+                aeStop(el);
+            }
             return;
         }
 
