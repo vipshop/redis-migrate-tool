@@ -61,6 +61,7 @@ typedef struct rmt_conf {
     int           rdb_diskless;
     int           source_safe;
     sds           dir;
+    sds           rdb_prefix;
 
     int           max_clients;
     sds           filter;

@@ -1907,9 +1907,14 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         if (ctx->dir != NULL) {
             rdb->fname = sdscatsds(rdb->fname, ctx->dir);
             rdb->fname = sdscat(rdb->fname, "/");
+            if (ctx->rdb_prefix != NULL && sdslen(ctx->rdb_prefix)) {
+                rdb->fname = sdscatsds(rdb->fname, ctx->rdb_prefix);
+            } else {
+                rdb->fname = sdscat(rdb->fname, "node");
+            }
         }
         rdb->fname = sdscatfmt(rdb->fname, 
-            "node%s-%I-%i.rdb",
+            "%s-%I-%i.rdb",
             srnode->addr==NULL?"unknow":srnode->addr,
             rmt_usec_now(),
             (long int)getpid());
