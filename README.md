@@ -93,6 +93,21 @@ Config file has three parts: source, target and common.
 + **filter**: Filter keys if they do not match the pattern. The pattern is Glob-style. Defaults is NULL.
 
 
+**filter** supported glob-style patterns:
+
++ h?llo matches hello, hallo and hxllo
+
++ h*llo matches hllo and heeeello
+
++ h[ae]llo matches hello and hallo, but not hillo
+
++ h[^e]llo matches hallo, hbllo, ... but not hello
+
++ h[a-b]llo matches hallo and hbllo
+
+
+Use \ to escape special characters if you want to match them verbatim.
+
 For example, the configuration file shown below is to migrate data from single to twemproxy.
 
     [source]
@@ -145,7 +160,7 @@ Migrate data from twemproxy to redis cluster.
     step: 1
     mbuf_size: 512
     
-Migrate data from a redis cluster to another redis cluster.
+Migrate data from a redis cluster to another redis cluster with key filter(key's prefix is "abc").
 
     [source]
     type: redis cluster
@@ -159,6 +174,7 @@ Migrate data from a redis cluster to another redis cluster.
 	
     [common]
     listen: 0.0.0.0:8888
+    filter: abc*
 	
 Load data from rdb file to redis cluster.
 
