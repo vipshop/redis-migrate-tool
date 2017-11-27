@@ -140,6 +140,8 @@ typedef struct redis_group{
     hash_t key_hash;
 
     uint32_t ncontinuum;	/* # continuum points */
+
+    dist_type_t distribution;
 }redis_group;
 
 typedef struct redis_node{
