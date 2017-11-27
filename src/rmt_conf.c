@@ -108,6 +108,9 @@ static conf_option conf_common_options[] = {
     { (char*)"dir",
       conf_set_string,
       offsetof(rmt_conf, dir) },
+    { (char*)"rdb_prefix",
+      conf_set_string,
+      offsetof(rmt_conf, rdb_prefix) },
     { (char*)"max_clients",
       conf_set_num,
       offsetof(rmt_conf, max_clients) },
@@ -694,6 +697,7 @@ static int conf_init(rmt_conf *cf)
     cf->rdb_diskless = CONF_UNSET_NUM;
     cf->source_safe = CONF_UNSET_NUM;
     cf->dir = CONF_UNSET_PTR;
+    cf->rdb_prefix = CONF_UNSET_PTR;
 
     cf->max_clients = CONF_UNSET_NUM;
 
@@ -735,7 +739,12 @@ static void conf_deinit(rmt_conf *cf)
         sdsfree(cf->dir);
         cf->dir = CONF_UNSET_PTR;
     }
-    
+
+    if(cf->rdb_prefix != NULL){
+        sdsfree(cf->rdb_prefix);
+        cf->rdb_prefix = CONF_UNSET_PTR;
+    }
+
     cf->maxmemory = CONF_UNSET_NUM;
     cf->threads = CONF_UNSET_NUM;
     cf->step = CONF_UNSET_NUM;
@@ -792,6 +801,7 @@ conf_dump(rmt_conf *cf)
     log_debug(log_level, "  rdb_diskless: %d", cf->rdb_diskless);
     log_debug(log_level, "  source_safe: %d", cf->source_safe);
     log_debug(log_level, "  dir: %s", cf->dir);
+    log_debug(log_level, "  rdb_prefix: %s", cf->rdb_prefix);
     log_debug(log_level, "  max_clients: %d", cf->max_clients);
     log_debug(log_level, "  filter: %s", cf->filter);
     log_debug(log_level, "");

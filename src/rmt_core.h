@@ -199,6 +199,7 @@ typedef struct rmtContext {
     int source_safe;
 
     sds dir;
+    sds rdb_prefix;
 
     struct redis_group *srgroup;
 

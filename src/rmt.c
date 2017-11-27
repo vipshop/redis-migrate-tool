@@ -195,8 +195,11 @@ init_context(struct instance *rmti)
             destroy_context(rmt_ctx);
             return NULL;
         }
-        
+
         rmt_ctx->dir = sdsdup(cf->dir);
+    }
+    if (cf->rdb_prefix != CONF_UNSET_PTR && sdslen(cf->rdb_prefix) > 0) {
+        rmt_ctx->rdb_prefix = sdsdup(cf->rdb_prefix);
     }
 
     rmt_ctx->loop = aeCreateEventLoop(1000);
@@ -269,6 +272,10 @@ void destroy_context(rmtContext *rmt_ctx)
 
     if (rmt_ctx->dir != NULL) {
         sdsfree(rmt_ctx->dir);
+    }
+
+    if (rmt_ctx->rdb_prefix != NULL) {
+        sdsfree(rmt_ctx->rdb_prefix);
     }
 
     while(listLength(&rmt_ctx->clients) > 0) {

@@ -1651,6 +1651,11 @@ static void rmtReceiveRdb(aeEventLoop *el, int fd, void *privdata, int mask)
             log_notice("Rdb file received, disconnect from the node[%s]", 
                 srnode->addr);
             notice_write_thread(srnode);    /* Let the next node begin replication */
+            int event_num = __sync_fetch_and_sub(srnode->event_num, 1);
+            log_notice("current read event number:%u", event_num - 1);
+            if (event_num == 1) {
+                aeStop(el);
+            }
             return;
         }
 
@@ -1902,9 +1907,14 @@ static void rmtSyncRedisMaster(aeEventLoop *el, int fd, void *privdata, int mask
         if (ctx->dir != NULL) {
             rdb->fname = sdscatsds(rdb->fname, ctx->dir);
             rdb->fname = sdscat(rdb->fname, "/");
+            if (ctx->rdb_prefix != NULL && sdslen(ctx->rdb_prefix)) {
+                rdb->fname = sdscatsds(rdb->fname, ctx->rdb_prefix);
+            } else {
+                rdb->fname = sdscat(rdb->fname, "node");
+            }
         }
         rdb->fname = sdscatfmt(rdb->fname, 
-            "node%s-%I-%i.rdb",
+            "%s-%I-%i.rdb",
             srnode->addr==NULL?"unknow":srnode->addr,
             rmt_usec_now(),
             (long int)getpid());

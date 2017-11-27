@@ -174,6 +174,7 @@ typedef struct redis_node{
     long long timestamp;
 
     int sk_event;				/* used to run some task */
+    unsigned int *event_num;
 
     struct redis_node *next;	/* next redis_node to begin replication */
 }redis_node;
