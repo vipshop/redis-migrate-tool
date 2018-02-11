@@ -7,6 +7,7 @@
 #define REDIS_SET       2
 #define REDIS_ZSET      3
 #define REDIS_HASH      4
+#define REDIS_ZSET2     5
 
 #define REDIS_REPLY_STATUS_OK     "+OK\r\n"
 #define REDIS_REPLY_STATUS_PONG   "+PONG\r\n"
@@ -255,6 +256,8 @@ void redis_value_destroy(struct array *value);
 char *get_redis_type_string(int type);
 
 struct array *get_multi_bulk_array_from_mbuf_list(list *mbufs);
+struct msg *redis_generate_select_cmd_msg(struct rmtContext *ctx, mbuf_base *mb, const char *dbid);
+int redis_select_cmd_send(redis_node *srnode, const char *dbid, void *data);
 
 #endif
 
