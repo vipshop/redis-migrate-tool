@@ -5987,7 +5987,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         }
 
         while (len--) {
-            unsigned char *zl;
+            sds zl;
             unsigned int count;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
@@ -6011,6 +6011,8 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
                 
                 eptr = ziplistNext(zl,eptr);
             }
+
+            sdsfree(zl);
         }
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
