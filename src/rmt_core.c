@@ -1308,6 +1308,7 @@ static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mas
     tcp_context *tc = trnode->tc;
     thread_data *wdata = trnode->write_data;
     listNode *lnode_node, *lnode_msg, *lnode_mbuf;
+    listNode *lnode_mbuf_markidx, *lnode_mbuf_readidx;
     list send_msgl;                      /* send msg list */
     struct iovec *ciov, iov[RMT_IOV_MAX];
     struct msg *msg;
@@ -1327,6 +1328,9 @@ static void send_data_to_target(aeEventLoop *el, int fd, void *privdata, int mas
 
     ASSERT(fd == tc->sd);
 
+    lnode_mbuf_markidx = NULL;
+    lnode_mbuf_readidx = NULL;
+
 again:
 
     send_again = 1;
@@ -1340,8 +1344,10 @@ again:
     log_debug(LOG_DEBUG, "send_data_to_target node[%s] msgs %lld",
         trnode->addr, listLength(trnode->send_data));
     
-    lnode_msg = listFirst(trnode->send_data);
-    
+	if (lnode_mbuf_readidx == NULL) {
+        lnode_mbuf_readidx = listFirst(msg->data);
+    }
+    lnode_mbuf = lnode_mbuf_readidx;
     while (lnode_msg != NULL && !stop) {
         
         msg = listNodeValue(lnode_msg);
@@ -1355,6 +1361,10 @@ again:
             if (array_n(&sendv) >= RMT_IOV_MAX || 
                 nsend >= limit) {
                 stop = 1;
+
+                /* save mbuf readmark idx */
+                lnode_mbuf_readidx = lnode_mbuf;
+
                 break;
             }
             
@@ -1374,6 +1384,10 @@ again:
             nsend += mlen;
             
             lnode_mbuf = listNextNode(lnode_mbuf);
+        }
+        if (stop == 0) {
+            /* reset read watermark */
+            lnode_mbuf_readidx = NULL;
         }
 
         lnode_msg = listNextNode(lnode_msg);
@@ -1422,7 +1436,11 @@ again:
         }
 
         /* adjust mbufs of the sent message */
-        lnode_mbuf = listFirst(msg->data);
+        if (lnode_mbuf_markidx == NULL) {
+            lnode_mbuf_markidx = listFirst(msg->data);
+        }
+        lnode_mbuf = lnode_mbuf_markidx;
+
         while(lnode_mbuf != NULL){
             
             mbuf = listNodeValue(lnode_mbuf);
@@ -1438,6 +1456,10 @@ again:
                 mbuf->pos += nsent;
                 ASSERT(mbuf->pos < mbuf->last);
                 nsent = 0;
+
+                /* save mark watermark */
+                lnode_mbuf_markidx = lnode_mbuf;
+
                 break;
             }
 
@@ -1463,6 +1485,8 @@ again:
                 msg->sent = 1;
                 listAddNodeTail(trnode->sent_data,msg);
             }
+            /* reset markidx watermark */
+            lnode_mbuf_markidx = NULL;
         }
     }
 
