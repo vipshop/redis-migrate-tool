@@ -845,6 +845,31 @@ char *rmt_send_sync_cmd_read_line(int fd, ...) {
     return sdsnew(buf);
 }
 
+/* send auth in resp */
+char *rmt_send_sync_auth(int fd, sds passwd) {
+    sds cmd = sdsempty();
+    char *arg, buf[256] = {'\0'};
+
+    cmd = sdscatprintf(cmd, "*2\r\n$4\r\nauth\r\n$%d\r\n%s\r\n", sdslen(passwd), passwd);
+
+    /* Transfer command to the server. */
+    if (rmt_sync_write(fd,cmd,(ssize_t)sdslen(cmd),1000) == -1) {
+        sdsfree(cmd);
+        return sdscatprintf(sdsempty(),"-Writing to redis: %s",
+                strerror(errno));
+    }
+    sdsfree(cmd);
+
+    /* Read the reply from the server. */
+    if (rmt_sync_readline(fd,buf,sizeof(buf),250) == -1)
+    {
+        return sdscatprintf(sdsempty(),"-Reading from redis: %s",
+                strerror(errno));
+    }
+    log_error("read reply from auth: %s", buf);
+    return sdsnew(buf);
+}
+
 /* ========================== Redis Replication ============================ */
 
 /* Send a short redis command to master. 
