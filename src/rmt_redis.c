@@ -866,7 +866,6 @@ char *rmt_send_sync_auth(int fd, sds passwd) {
         return sdscatprintf(sdsempty(),"-Reading from redis: %s",
                 strerror(errno));
     }
-    log_error("read reply from auth: %s", buf);
     return sdsnew(buf);
 }
 

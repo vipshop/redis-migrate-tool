@@ -416,13 +416,12 @@ static int writeThreadCron(struct aeEventLoop *eventLoop, long long id, void *cl
                 if (trgroup->password) {
                     sds reply;
                     reply = rmt_send_sync_auth(tc->sd, trgroup->password);
-                    // TODO
-                    //if (sdslen(reply) == 0 || reply[0] == '-') {
-                    //    log_error("ERROR: password to %s is wrong", trnode->addr);
-                    //    sdsfree(reply);
-                    //    continue;
-                    //}
-                    //sdsfree(reply);
+                    if (sdslen(reply) == 0 || reply[0] == '-') {
+                        log_error("ERROR: password to %s is wrong", trnode->addr);
+                        sdsfree(reply);
+                        continue;
+                    }
+                    sdsfree(reply);
                 }
 
                 if (ctx->noreply == 0) {
@@ -1597,7 +1596,13 @@ int prepare_send_msg(redis_node *srnode, struct msg *msg, redis_node *trnode)
         }
 
         if (trgroup->password) {
-            rmt_send_sync_auth(tc->sd, trgroup->password);
+            sds reply;
+            reply = rmt_send_sync_auth(tc->sd, trgroup->password);
+            if (sdslen(reply) == 0 || reply[0] == '-') {
+                log_error("ERROR: password to %s is wrong", trnode->addr);
+                sdsfree(reply);
+            }
+            sdsfree(reply);
         }
 
         if (ctx->noreply == 0) {
