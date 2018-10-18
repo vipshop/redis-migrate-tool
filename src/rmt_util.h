@@ -427,6 +427,14 @@ uint64_t intrev64(uint64_t v);
 #define intrev64ifbe(v) intrev64(v)
 #endif
 
+#if (BYTE_ORDER == BIG_ENDIAN)
+#define htonu64(v) (v)
+#define ntohu64(v) (v)
+#else
+#define htonu64(v) intrev64(v)
+#define ntohu64(v) intrev64(v)
+#endif
+
 sds getAbsolutePath(char *filename);
 
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);

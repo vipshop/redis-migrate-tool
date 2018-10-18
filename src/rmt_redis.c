@@ -47,7 +47,8 @@
  * values, will fit inside. */
 #define REDIS_RDB_6BITLEN 0
 #define REDIS_RDB_14BITLEN 1
-#define REDIS_RDB_32BITLEN 2
+#define REDIS_RDB_32BITLEN 0x80
+#define REDIS_RDB_64BITLEN 0x81
 #define REDIS_RDB_ENCVAL 3
 #define REDIS_RDB_LENERR UINT_MAX
 
@@ -5770,10 +5771,9 @@ static int redis_rdb_file_read(redis_rdb *rdb, void *buf, size_t len)
     return RMT_OK;
 }
 
-static uint32_t redis_rdb_file_load_len(redis_rdb *rdb, int *isencoded)
+static uint64_t redis_rdb_file_load_len(redis_rdb *rdb, int *isencoded)
 {
     unsigned char buf[2];
-    uint32_t len;
     int type;
     
     if(rdb->fp == NULL)
@@ -5804,14 +5804,24 @@ static uint32_t redis_rdb_file_load_len(redis_rdb *rdb, int *isencoded)
         }
 
         return (uint32_t)(((buf[0]&0x3F)<<8)|buf[1]);
-    } else {
+    } else if (buf[0] == REDIS_RDB_32BITLEN) {
         /* Read a 32 bit len. */
+        uint32_t len;
         if (redis_rdb_file_read(rdb, &len, 4) != RMT_OK){
             return REDIS_RDB_LENERR;
         }
 
         return ntohl(len);
+    } else if (buf[0] == REDIS_RDB_64BITLEN) {
+        /* Read a 64 bit len. */
+        uint64_t len;
+        if (redis_rdb_file_read(rdb, &len, 8) != RMT_OK){
+            return REDIS_RDB_LENERR;
+        }
+        return ntohu64(len);
     }
+    /* Never reached */
+    return REDIS_RDB_LENERR;
 }
 
 /* Loads an integer-encoded object with the specified encoding type "enctype".
@@ -5871,7 +5881,7 @@ static sds redis_rdb_file_load_binary_double_str(redis_rdb *rdb) {
 }
 
 static sds redis_rdb_file_load_lzf_str(redis_rdb *rdb) {
-    unsigned int len, clen;
+    uint64_t len, clen;
     unsigned char *c = NULL;
     sds val = NULL;
 
@@ -5892,7 +5902,7 @@ err:
 static sds redis_rdb_file_load_str(redis_rdb *rdb)
 {
     int isencoded;
-    uint32_t len;
+    uint64_t len;
     sds str;
 
     if((len = redis_rdb_file_load_len(rdb, &isencoded)) 
