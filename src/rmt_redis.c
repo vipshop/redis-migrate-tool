@@ -5999,7 +5999,7 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
         while(len--) {
             if ((elem1 = redis_rdb_file_load_str(rdb)) == NULL) goto error;
             if (rdbtype == REDIS_RDB_TYPE_ZSET_2) {
-                if ((elem2 = redis_rdb_file_load_double_str(rdb)) == NULL) {
+                if ((elem2 = redis_rdb_file_load_binary_double_str(rdb)) == NULL) {
                     sdsfree(elem1);
                     log_error("ERROR: redis_rdb_file_load_binary_double_str failed");
                     goto error;
