@@ -6610,7 +6610,10 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             sdsfree(auxkey);
             sdsfree(auxval);
             continue;
-        }
+        } else if (type == REDIS_RDB_OPCODE_MODULE_AUX) {
+            //redis has only checkmode now
+            continue;
+		}
 
         if ((key = redis_rdb_file_load_str(rdb)) == NULL) {
             log_error("ERROR: redis rdb file %s read key error", 
