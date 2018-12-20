@@ -30,7 +30,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define REDIS_RDB_VERSION 8
+#define REDIS_RDB_VERSION 9
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -81,6 +81,9 @@
 #define rdbIsObjectType(t) ((t >= 0 && t <= 4) || (t >= 9 && t <= 13))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define REDIS_RDB_OPCODE_MODULE_AUX 247
+#define REDIS_RDB_OPCODE_IDLE       248
+#define REDIS_RDB_OPCODE_FREQ       249
 #define REDIS_RDB_OPCODE_AUX        250
 #define REDIS_RDB_OPCODE_RESIZEDB   251
 #define REDIS_RDB_OPCODE_EXPIRETIME_MS 252
@@ -6462,6 +6465,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
     struct array *value;
     int data_type;
     int mbuf_count, mbuf_count_max;
+	long long lfu_freq, lru_idle;
 
     ASSERT(rdb->type == REDIS_RDB_TYPE_FILE);
 
@@ -6501,7 +6505,7 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
 
         rdb->rdbver = rmt_atoi(buf+len, 4);
         if (rdb->rdbver < 1 || rdb->rdbver > REDIS_RDB_VERSION) {
-            log_error("ERROR: Can't handle RDB format version %d",
+            log_error("ERROR: Can't handle RDB format filename:%s version %d",
                 rdb->fname, rdb->rdbver);
             goto error;
         }
@@ -6551,7 +6555,25 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             }
 
             expiretime_type = RMT_TIME_MILLISECOND;
-        } else if (type == REDIS_RDB_OPCODE_EOF) {
+        } else if (type == REDIS_RDB_OPCODE_FREQ) {
+            uint8_t byte = 0;
+			if (redis_rdb_file_read(rdb, &byte, 1) != RMT_OK) {
+                log_error("ERROR: redis rdb file:%s read freq error", rdb->fname);
+				goto eoferr;                
+			}
+			
+			lfu_freq = byte;
+			continue;
+		} else if (type == REDIS_RDB_OPCODE_IDLE) {
+		    uint64_t qword;
+			if ((qword = redis_rdb_file_load_len(rdb, NULL)) == REDIS_RDB_LENERR) {
+                log_error("ERROR: redis rdb file:%s read idle error", rdb->fname);
+				goto eoferr;
+			}
+            
+			lru_idle = qword;
+			continue; 
+		} else if (type == REDIS_RDB_OPCODE_EOF) {
             break;
         } else if (type == REDIS_RDB_OPCODE_SELECTDB) {
             if ((dbid = redis_rdb_file_load_len(rdb, NULL)) 
