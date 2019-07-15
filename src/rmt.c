@@ -497,7 +497,9 @@ int main(int argc,char *argv[])
     if (rmt_ctx == NULL) {
         return RMT_ERROR;
     }
-    
+
+    set_rate_limiting(rmti.rate_limiting);
+
     core_core(rmt_ctx);
 
     destroy_context(rmt_ctx);

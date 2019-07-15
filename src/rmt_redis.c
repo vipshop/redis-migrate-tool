@@ -164,7 +164,15 @@ static dictType groupNodesDictType = {
     dictGroupNodeDestructor   /* val destructor */
 };
 
+static int rateLimiting = 0;
+static long long rateLimitingLastMsec = 0;
+static int rateLimitingRequests = 0;
+
 static int rmtRedisSlaveAgainOnline(redis_node *srnode);
+
+void set_rate_limiting(int rl) {
+    rateLimiting = rl;
+}
 
 int redis_replication_init(redis_repl *rr)
 {
@@ -5956,8 +5964,6 @@ static struct array *redis_rdb_file_load_value(redis_rdb *rdb, int rdbtype)
     value = NULL;
     elems = NULL;
 
-    log_debug(LOG_DEBUG, "rdbtype: %d", rdbtype);
-
     if (rdbtype == REDIS_RDB_TYPE_STRING) {
         value = redis_value_create(1);
         if(value == NULL)
@@ -6342,6 +6348,24 @@ int redis_key_value_send(redis_node *srnode, sds key,
     struct msg *msg = NULL;
     uint32_t i;
     int mbuf_count = 0;
+    long long now_usec = rmt_usec_now();
+
+
+    if (rateLimiting > 0) {
+        if (rateLimitingLastMsec == 0) {
+            rateLimitingRequests = 0;
+        } else if (now_usec - rateLimitingLastMsec <= 1 * 1000) {
+            rateLimitingRequests++;
+            /* check if trigger rate limiter */
+            if (rateLimitingRequests * 1000 > rateLimiting) {
+                /* Just sleep wait until 1ms reached */
+                usleep(now_usec - rateLimitingLastMsec);
+            }
+        } else {
+            rateLimitingRequests = 0;
+        }
+        rateLimitingLastMsec = now_usec;
+    }
 
     if (expiretime_type == RMT_TIME_SECOND) {
         if(expiretime * 1000 < now){
@@ -6607,9 +6631,6 @@ int redis_parse_rdb_file(redis_node *srnode, int mbuf_count_one_time)
             log_error("ERROR: get redis object type by rdbtype failed");
             goto error;
         }
-
-        log_debug(LOG_DEBUG, "key: %s, value array length: %u", 
-            key, array_n(value));
 
         if (rdb->handler != NULL && 
             (srgroup->kind == GROUP_TYPE_SINGLE || srgroup->get_backend_node == NULL || 
