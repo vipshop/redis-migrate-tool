@@ -47,7 +47,8 @@
  * values, will fit inside. */
 #define REDIS_RDB_6BITLEN 0
 #define REDIS_RDB_14BITLEN 1
-#define REDIS_RDB_32BITLEN 2
+#define REDIS_RDB_32BITLEN 0x80
+#define REDIS_RDB_64BITLEN 0x81
 #define REDIS_RDB_ENCVAL 3
 #define REDIS_RDB_LENERR UINT_MAX
 
@@ -5779,13 +5780,22 @@ static uint32_t redis_rdb_file_load_len(redis_rdb *rdb, int *isencoded)
         }
 
         return (uint32_t)(((buf[0]&0x3F)<<8)|buf[1]);
-    } else {
+    } else if (buf[0] == REDIS_RDB_32BITLEN){
         /* Read a 32 bit len. */
         if (redis_rdb_file_read(rdb, &len, 4) != RMT_OK){
             return REDIS_RDB_LENERR;
         }
 
         return ntohl(len);
+    }  else if (buf[0] == REDIS_RDB_64BITLEN){
+        /* Read a 64 bit len. */
+        if (redis_rdb_file_read(rdb, &len, 8) != RMT_OK){
+            return REDIS_RDB_LENERR;
+        }
+
+        return intrev64(len);
+    } else {
+        return REDIS_RDB_LENERR;
     }
 }
 
