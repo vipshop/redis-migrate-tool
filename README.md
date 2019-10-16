@@ -1,6 +1,6 @@
 # redis-migrate-tool
 
-**redis-migrate-tool** is a convenient and useful tool for migrating data between [redis](https://github.com/antirez/redis). 
+**redis-migrate-tool** is a convenient and useful tool for migrating data between [redis](https://github.com/antirez/redis). it has supported redis 5.0 rdb format v9.
 
 ## [中文介绍](http://www.oschina.net/p/redis-migrate-tool)
 
