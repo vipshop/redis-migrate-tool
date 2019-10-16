@@ -172,6 +172,7 @@ struct instance {
 
     char            *listen;
     int             max_clients;
+    int             rate_limiting;
 };
 
 typedef struct rmtContext {
@@ -290,6 +291,8 @@ redis_group *source_group_create(rmtContext *ctx);
 void source_group_destroy(redis_group *srgroup);
 redis_group *target_group_create(rmtContext *ctx);
 void target_group_destroy(redis_group *trgroup);
+
+void set_rate_limiting(int rl);
 
 void redis_migrate(rmtContext *ctx, int type);
 void redis_check_data(rmtContext *ctx, int type);

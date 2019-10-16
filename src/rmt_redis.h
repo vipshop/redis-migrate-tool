@@ -189,7 +189,7 @@ int redis_rdb_init(redis_rdb *rdb, const char *addr, int type);
 void redis_rdb_deinit(redis_rdb *rdb);
 
 char *rmt_send_sync_cmd_read_line(int fd, ...);
-
+char *rmt_send_sync_auth(int fd, sds passwd);
 int rmtConnectRedisMaster(redis_node *srnode);
 
 void rmtRedisSlaveOffline(redis_node *srnode);

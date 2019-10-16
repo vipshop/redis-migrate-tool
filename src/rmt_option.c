@@ -32,6 +32,8 @@
 #define RMT_OPTION_LISTEN_DEFAULT       "127.0.0.1:8888"
 #define RMT_OPTION_MAX_CLIENTS_DEFAULT  100
 
+#define RMT_OPTION_RATE_LIMITING_DEFAULT 0
+
 static struct option long_options[] = {
     { "help",           no_argument,        NULL,   'h' },
     { "version",        no_argument,        NULL,   'V' },
@@ -52,10 +54,11 @@ static struct option long_options[] = {
     { "from",        	required_argument,  NULL,   'f' },
     { "to",        	    required_argument,  NULL,   't' },
     { "step",        	required_argument,  NULL,   's' },
+    { "rate-limiting",  required_argument,  NULL,   'l' },
     { NULL,             0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVdnIo:v:c:p:m:C:r:R:T:b:S:f:t:s:";
+static char short_options[] = "hVdnIo:v:c:p:m:C:r:R:T:b:S:f:t:s:l:";
 
 void
 rmt_show_usage(void)
@@ -88,6 +91,7 @@ rmt_show_usage(void)
         "  -f, --from=S           : set source redis address (default: %s)" CRLF
         "  -t, --to=S             : set target redis group address (default: %s)" CRLF
         "  -s, --step=N           : set step (default: %d)" CRLF
+        "  -l, --rate-limiting    : rate limit of payload to backend server (default %d)" CRLF
         "",
         RMT_LOG_DEFAULT, RMT_LOG_MIN, RMT_LOG_MAX,
         RMT_LOG_PATH != NULL ? RMT_LOG_PATH : "stderr",
@@ -101,7 +105,8 @@ rmt_show_usage(void)
         RMT_OPTION_BUFFER_DEFAULT,
         RMT_SOURCE_ADDR,
         RMT_TARGET_ADDR,
-        RMT_OPTION_STEP_DEFAULT);
+        RMT_OPTION_STEP_DEFAULT,
+        RMT_OPTION_RATE_LIMITING_DEFAULT);
 
 	rmt_show_command_usage();
 }
@@ -139,6 +144,7 @@ rmt_set_default_options(struct instance *nci)
 
     nci->listen = RMT_OPTION_LISTEN_DEFAULT;
     nci->max_clients = RMT_OPTION_MAX_CLIENTS_DEFAULT;
+    nci->rate_limiting = RMT_OPTION_RATE_LIMITING_DEFAULT;
 }
 
 r_status
@@ -307,7 +313,14 @@ rmt_get_options(int argc, char **argv, struct instance *nci)
             
             nci->step = value;
             break;
-			
+        case 'l':
+            value = rmt_atoi(optarg, rmt_strlen(optarg));
+            if (value < 0) {
+                log_stderr("redis-migrate-tool: option -s requires a number >=0");
+                return RMT_ERROR;
+            }
+            nci->rate_limiting = value;
+            break;
         case '?':
             switch (optopt) {
             case 'o':
